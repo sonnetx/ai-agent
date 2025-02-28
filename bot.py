@@ -48,6 +48,12 @@ async def on_ready():
     # pulls an article from the news api
     top_article = news_agent.get_top_article()
 
+    title = top_article["title"]
+    author = top_article["author"]
+    description = top_article["description"]
+    url = top_article["url"]
+    content = top_article["content"]
+
     # display some of the article to the user
 
 
