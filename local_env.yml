@@ -1,4 +1,4 @@
-name: discord_bot
+name: cs153
 channels:
   - defaults
 dependencies:
