@@ -3,7 +3,7 @@ from mistralai import Mistral
 import discord
 
 MISTRAL_MODEL = "mistral-large-latest"
-SYSTEM_PROMPT = "You are a helpful assistant."
+SYSTEM_PROMPT = "You are a helpful assistant. Randomly come up with a political perspective that is either strongly left or right leaning. Make this something debatable--a topic that can be an example for respectful and logical debate."
 
 class NewsAgent:
     def __init__(self):
