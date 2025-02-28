@@ -4,7 +4,7 @@ import logging
 
 from discord.ext import commands
 from dotenv import load_dotenv
-from agent import MistralAgent
+from agent import MistralAgent, NewsAgent
 
 PREFIX = "!"
 
@@ -20,11 +20,13 @@ intents = discord.Intents.all()
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
 # Import the Mistral agent from the agent.py file
-agent = MistralAgent()
+news_agent = NewsAgent()
+debate_agent = MistralAgent()
 
 
 # Get the token from the environment variables
 token = os.getenv("DISCORD_TOKEN")
+CHANNEL_ID = 123456789012345678
 
 
 @bot.event
@@ -36,6 +38,19 @@ async def on_ready():
     https://discordpy.readthedocs.io/en/latest/api.html#discord.on_ready
     """
     logger.info(f"{bot.user} has connected to Discord!")
+    
+    # starts the conversation by greeting the user
+    channel = bot.get_channel(CHANNEL_ID)  # Replace with the desired channel ID
+    await channel.send(f"Hello, I'm EchoBreaker! I'm here to help you learn about the world of through debate. Would you like to get started?")
+
+    # takes in some preferences from the user
+
+    # pulls an article from the news api
+    top_article = news_agent.get_top_article()
+
+    # display some of the article to the user
+
+    # asks the user a question
 
 
 @bot.event
@@ -55,7 +70,9 @@ async def on_message(message: discord.Message):
     # Process the message with the agent you wrote
     # Open up the agent.py file to customize the agent
     logger.info(f"Processing message from {message.author}: {message.content}")
-    response = await agent.run(message)
+
+    # sends the user's message to the agent
+    response = await debate_agent.run(message)
 
     # Send the response back to the channel
     await message.reply(response)
