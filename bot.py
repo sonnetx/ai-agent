@@ -122,24 +122,19 @@ async def debate(ctx):
     
     # Set up the debate agent with context about the article
     setup_message = FakeMessage(
-        content=f"Let's debate about this news article: {title}. {description}",
+        content=f"Take a strong political position on this news article: {title}. {description}",
         author=ctx.author
     )
-    await debate_agent.run(setup_message)
     
-    # Ask the user a question to start the debate
-    question_message = FakeMessage(
-        content="Please provide a controversial political perspective on this article that we can debate. Keep your response under 1500 characters.",
-        author=ctx.author
-    )
-    opening_question = await debate_agent.run(question_message)
+    # Get the AI's opening position
+    opening_position = await debate_agent.run(setup_message)
     
-    # Truncate the opening question if it's too long
-    if len(opening_question) > 1500:
-        opening_question = opening_question[:1497] + "..."
+    # Truncate if too long
+    if len(opening_position) > 1500:
+        opening_position = opening_position[:1497] + "..."
     
     # Send the debate prompt
-    await ctx.send(f"**Let's begin our debate!**\n\n{opening_question}\n\nWhat's your position on this? (You're now in an active debate - all your messages will be part of the debate until you type `!enddebate`)")
+    await ctx.send(f"**Let's begin our debate!**\n\n{opening_position}\n\nWhat's your position on this? I'll defend my viewpoint, and you try to convince me otherwise. (You're now in an active debate - all your messages will be part of the debate until you type `!enddebate`)")
     
     # Mark user as in an active debate
     active_debates[user_id] = {
