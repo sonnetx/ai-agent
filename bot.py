@@ -35,6 +35,13 @@ CHANNEL_ID = int(os.getenv("CHANNEL_ID", "123456789012345678"))
 # Track active debates
 active_debates = {}
 
+# Add this class near the top of your bot.py file, after the imports
+class FakeMessage:
+    """A simple class to simulate a Discord message for the agent."""
+    def __init__(self, content, author=None):
+        self.content = content
+        self.author = author
+
 @bot.event
 async def on_ready():
     """
@@ -70,9 +77,15 @@ async def on_message(message: discord.Message):
         
         # sends the user's message to the agent
         response = await debate_agent.run(message)
-
-        # Send the response back to the channel
-        await message.reply(response)
+        
+        # Split long responses into multiple messages
+        if len(response) <= 2000:
+            await message.reply(response)
+        else:
+            # Split the response into chunks of 1900 characters (leaving room for "Part X/Y: " prefix)
+            chunks = [response[i:i+1900] for i in range(0, len(response), 1900)]
+            for i, chunk in enumerate(chunks):
+                await message.channel.send(f"**Part {i+1}/{len(chunks)}**: {chunk}")
 
 # Commands
 @bot.command(name="debate", help="Start a political debate with the bot.")
@@ -108,19 +121,24 @@ async def debate(ctx):
     await ctx.send("Here's a current news article:", embed=article_embed)
     
     # Set up the debate agent with context about the article
-    setup_message = discord.Message(
-        author=ctx.author,
-        content=f"Let's debate about this news article: {title}. {description}"
+    setup_message = FakeMessage(
+        content=f"Let's debate about this news article: {title}. {description}",
+        author=ctx.author
     )
     await debate_agent.run(setup_message)
     
     # Ask the user a question to start the debate
-    question_message = discord.Message(
-        author=ctx.author,
-        content="Please provide a controversial political perspective on this article that we can debate."
+    question_message = FakeMessage(
+        content="Please provide a controversial political perspective on this article that we can debate. Keep your response under 1500 characters.",
+        author=ctx.author
     )
     opening_question = await debate_agent.run(question_message)
     
+    # Truncate the opening question if it's too long
+    if len(opening_question) > 1500:
+        opening_question = opening_question[:1497] + "..."
+    
+    # Send the debate prompt
     await ctx.send(f"**Let's begin our debate!**\n\n{opening_question}\n\nWhat's your position on this? (You're now in an active debate - all your messages will be part of the debate until you type `!enddebate`)")
     
     # Mark user as in an active debate
