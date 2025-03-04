@@ -12,8 +12,7 @@ class NewsAgent:
         NEWS_API_KEY = os.getenv("NEWS_API_KEY")
         self.NEWS_API_KEY = NEWS_API_KEY   
 
-    def get_top_article(self, message: discord.Message):
-
+    def get_top_article(self):
         url = ('https://newsapi.org/v2/top-headlines?'
             'country=us&'
             'from=' + (datetime.date.today() - datetime.timedelta(days=7)).isoformat() + '&'
@@ -21,28 +20,42 @@ class NewsAgent:
             f'apiKey={self.NEWS_API_KEY}')
         
         response = requests.get(url).json()
-
+        
         """
         response
         {
-            -"source": {
-            "id": "the-verge",
-            "name": "The Verge"
-            },
-            "author": "Victoria Song",
-            "title": "NHL officials will start wearing Apple Watches on ice",
-            "description": "The Apple Watch is now the smartwatch of choice for National Hockey League officials. Apple and the NHL just announced a collaboration where on-ice officials will wear Apple Watches that are running special software to receive important in-game information. U…",
-            "url": "https://www.theverge.com/news/621004/nhl-watch-comms-apple-watch-wearables-smartwatch",
-            "urlToImage": "https://platform.theverge.com/wp-content/uploads/sites/2/2025/02/2.-Apple-NHL-Watch-Comms-App-Officials-Image-Getty-Images.png?quality=90&strip=all&crop=0%2C10.737197040292%2C100%2C78.525605919415&w=1200",
-            "publishedAt": "2025-02-28T14:21:51Z",
-            "content": "The NHL Watch Comms app aims to help on-ice officials stay aware of their surroundings.\r\nThe NHL Watch Comms app aims to help on-ice officials stay aware of their surroundings.\r\nThe Apple Watch is no… [+2492 chars]"
+            "articles": [
+                {
+                    "source": {
+                        "id": "the-verge",
+                        "name": "The Verge"
+                    },
+                    "author": "Victoria Song",
+                    "title": "NHL officials will start wearing Apple Watches on ice",
+                    "description": "The Apple Watch is now the smartwatch of choice for National Hockey League officials. Apple and the NHL just announced a collaboration where on-ice officials will wear Apple Watches that are running special software to receive important in-game information. U…",
+                    "url": "https://www.theverge.com/news/621004/nhl-watch-comms-apple-watch-wearables-smartwatch",
+                    "urlToImage": "https://platform.theverge.com/wp-content/uploads/sites/2/2025/02/2.-Apple-NHL-Watch-Comms-App-Officials-Image-Getty-Images.png?quality=90&strip=all&crop=0%2C10.737197040292%2C100%2C78.525605919415&w=1200",
+                    "publishedAt": "2025-02-28T14:21:51Z",
+                    "content": "The NHL Watch Comms app aims to help on-ice officials stay aware of their surroundings.\r\nThe NHL Watch Comms app aims to help on-ice officials stay aware of their surroundings.\r\nThe Apple Watch is no… [+2492 chars]"
+                },
+                ...
+            ]
         }
         """
-
-        return response.articles[0]
+        
+        # Check if articles exist in the response
+        if 'articles' in response and len(response['articles']) > 0:
+            return response['articles'][0]
+        else:
+            return {
+                "title": "No articles found",
+                "author": "Unknown",
+                "description": "Could not retrieve articles at this time.",
+                "url": "",
+                "content": ""
+            }
     
-    def get_related_articles(self, keyword, message: discord.Message):
-
+    def get_related_articles(self, keyword):
         url = ('https://newsapi.org/v2/everything?'
             f'q={keyword}&'
             'from=' + (datetime.date.today() - datetime.timedelta(days=7)).isoformat() + '&'
@@ -50,25 +63,34 @@ class NewsAgent:
             f'apiKey={self.NEWS_API_KEY}')
         
         response = requests.get(url).json()
-
-        return response.articles
+        
+        if 'articles' in response:
+            return response['articles']
+        else:
+            return []
 
 class MistralAgent:
     def __init__(self):
         MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
-
         self.client = Mistral(api_key=MISTRAL_API_KEY)
         self.conversation_history = [
             {"role": "system", "content": SYSTEM_PROMPT}
         ]
 
     async def run(self, message: discord.Message):
-
+        # Add the user message to conversation history
         self.conversation_history.append({"role": "user", "content": message.content})
-
+        
+        # Get response from Mistral
         response = await self.client.chat.complete_async(
             model=MISTRAL_MODEL,
             messages=self.conversation_history,
         )
-
-        return response.choices[0].message.content
+        
+        # Extract the assistant's message
+        assistant_message = response.choices[0].message
+        
+        # Add the assistant's response to conversation history
+        self.conversation_history.append({"role": "assistant", "content": assistant_message.content})
+        
+        return assistant_message.content
