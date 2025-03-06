@@ -98,6 +98,14 @@ async def on_ready():
                   "• Multiple difficulty levels",
             inline=False
         )
+        welcome_embed.add_field(
+            name="Historical Figures",
+            value="`!figures` - View available historical figures\n"
+                  "`!figure [name]` - View details about a figure\n"
+                  "`!customfigure [name]` - Create any historical figure\n"
+                  "`!debate [figure] [topic]` - Debate as a historical figure",
+            inline=False
+        )
         
         await channel.send("Hello, I'm EchoBreaker! Ready to debate?", embed=welcome_embed)
 
@@ -171,20 +179,64 @@ async def on_message(message: discord.Message):
             await message.channel.send(embed=fact_check_embed)
 
 # Commands
-@bot.command(name="debate", help="Start a political debate with the bot. Optionally specify a topic and difficulty.")
-async def debate(ctx, difficulty="normal", *, topic=None):
-    """Start a debate session with the bot using a current news article."""
-    user_id = ctx.author.id
+@bot.command(name="debate", help="Start a political debate with the bot. Optional: [figure] [difficulty] [topic]")
+async def debate(ctx, arg1=None, arg2=None, *, topic=None):
+    """
+    Start a debate session with the bot.
     
-    # Extract difficulty and topic if both are provided
-    if difficulty not in ["easy", "normal", "hard"] and topic is None:
-        topic = difficulty
-        difficulty = "normal"
+    Can be used in multiple ways:
+    !debate - Start debate with random topic
+    !debate topic - Start debate on specific topic
+    !debate figure topic - Start debate as historical figure
+    !debate difficulty topic - Start debate with difficulty setting
+    !debate figure difficulty topic - Full specification
+    """
+    user_id = ctx.author.id
     
     # Check if user is already in a debate
     if user_id in active_debates:
         await ctx.send("You're already in an active debate! Type `!enddebate` to end it first.")
         return
+    
+    # Parse the arguments
+    figure = None
+    difficulty = "normal"
+    
+    # Process first argument
+    if arg1:
+        # Check if arg1 is a figure name
+        if debate_agent.historical_figures.get_figure_details(arg1):
+            figure = arg1
+        # Check if arg1 is a difficulty
+        elif arg1 in ["easy", "normal", "hard"]:
+            difficulty = arg1
+        # Check if it might be an unknown historical figure
+        elif arg1.isalpha() and len(arg1) > 3 and not arg1.isdigit():
+            await ctx.send(f"I don't recognize '{arg1}' as a historical figure. Use `!figures` to see available options or create a custom figure with `!customfigure {arg1}`.")
+            return
+        # Otherwise it's part of the topic
+        else:
+            if topic:
+                topic = f"{arg1} {arg2} {topic}"
+            elif arg2:
+                topic = f"{arg1} {arg2}"
+            else:
+                topic = arg1
+            arg1 = None
+            arg2 = None
+    
+    # Process second argument if first was used
+    if arg1 and arg2:
+        # If we already have a figure, check for difficulty
+        if figure and arg2 in ["easy", "normal", "hard"]:
+            difficulty = arg2
+        # Otherwise it's part of the topic
+        else:
+            if topic:
+                topic = f"{arg2} {topic}"
+            else:
+                topic = arg2
+            arg2 = None
     
     # Inform user about difficulty level
     difficulty_factor = {"easy": 0.8, "normal": 1.0, "hard": 1.2}
@@ -194,9 +246,20 @@ async def debate(ctx, difficulty="normal", *, topic=None):
         "hard": "I'll aggressively defend my position and challenge your arguments thoroughly."
     }
     
-    # Display difficulty selection
-    await ctx.send(f"**Difficulty: {difficulty.upper()}**\n{difficulty_desc[difficulty]}\n" +
-                   f"Point multiplier: {difficulty_factor[difficulty]}x")
+    # Set historical figure if specified
+    figure_desc = ""
+    if figure:
+        figure_details = debate_agent.historical_figures.get_figure_details(figure)
+        debate_agent.set_historical_figure(figure)
+        figure_desc = f"**Debating as: {figure_details['name']}**\n{figure_details['description']}\n\n"
+    else:
+        debate_agent.reset_persona()
+    
+    # Display settings
+    await ctx.send(
+        f"{figure_desc}**Difficulty: {difficulty.upper()}**\n{difficulty_desc[difficulty]}\n" +
+        f"Point multiplier: {difficulty_factor[difficulty]}x"
+    )
     
     if topic:
         await ctx.send(f"Let's start a debate about {topic}! I'll find a relevant news article for us to discuss...")
@@ -263,6 +326,9 @@ async def enddebate(ctx):
     
     if user_id in active_debates:
         debate_info = active_debates[user_id]
+        
+        # Reset agent's persona
+        debate_agent.reset_persona()
         
         # Calculate debate duration and points
         start_time = debate_info["start_time"]
@@ -410,6 +476,138 @@ async def explain_factcheck(ctx):
     )
     
     embed.set_footer(text="Fact-checking powered by Perplexity AI")
+    
+    await ctx.send(embed=embed)
+
+@bot.command(name="figures", aliases=["historicalfigures", "personas"], help="List available historical figures for debates")
+async def list_figures(ctx):
+    """Show a list of historical figures the bot can debate as."""
+    figures = debate_agent.historical_figures.get_figure_names()
+    
+    embed = discord.Embed(
+        title="Available Historical Figures",
+        description="Choose a historical figure for your next debate using `!debate [figure] [topic]`\nExample: `!debate churchill democracy`",
+        color=discord.Color.gold()
+    )
+    
+    for figure_id in figures:
+        figure = debate_agent.historical_figures.get_figure_details(figure_id)
+        embed.add_field(
+            name=figure["name"],
+            value=f"**Era:** {figure['era']}\n"
+                  f"**Style:** {figure['style']}",
+            inline=False
+        )
+    
+    await ctx.send(embed=embed)
+
+@bot.command(name="figure", help="Get details about a specific historical figure")
+async def figure_details(ctx, figure_id):
+    """Show detailed information about a specific historical figure."""
+    figure = debate_agent.historical_figures.get_figure_details(figure_id)
+    
+    if not figure:
+        await ctx.send(f"Historical figure '{figure_id}' not found. Use `!figures` to see available options.")
+        return
+    
+    embed = discord.Embed(
+        title=figure["name"],
+        description=figure["description"],
+        color=discord.Color.blue()
+    )
+    
+    embed.add_field(name="Era", value=figure["era"], inline=True)
+    embed.add_field(name="Debate Style", value=figure["style"], inline=False)
+    embed.add_field(name="Key Beliefs", value=figure["beliefs"], inline=False)
+    embed.add_field(
+        name="Usage",
+        value=f"Start a debate with this figure using:\n`!debate {figure_id.lower()} [topic]`",
+        inline=False
+    )
+    
+    await ctx.send(embed=embed)
+
+@bot.command(name="customfigure", aliases=["custom"], help="Create a custom historical figure to debate as")
+async def create_custom_figure(ctx, *, figure_name):
+    """
+    Create a custom historical figure to debate as.
+    
+    Args:
+        figure_name: The name of the historical figure to create
+    """
+    if not figure_name:
+        await ctx.send("Please provide the name of a historical figure. Example: `!customfigure Napoleon Bonaparte`")
+        return
+    
+    # Show typing indicator while generating
+    async with ctx.typing():
+        await ctx.send(f"Generating debate persona for {figure_name}... This might take a moment.")
+        
+        # Generate the custom figure
+        figure_key, figure_data = await debate_agent.historical_figures.generate_custom_figure(
+            figure_name, debate_agent.client
+        )
+        
+        if not figure_key:
+            await ctx.send(f"Sorry, I couldn't generate a persona for {figure_name}. Please try a different figure.")
+            return
+    
+    # Create an embed to display the new figure
+    embed = discord.Embed(
+        title=f"New Historical Figure: {figure_data['name']}",
+        description=figure_data['description'],
+        color=discord.Color.purple()
+    )
+    
+    embed.add_field(name="Era", value=figure_data["era"], inline=True)
+    embed.add_field(name="Debate Style", value=figure_data["style"], inline=False)
+    embed.add_field(name="Key Beliefs", value=figure_data["beliefs"], inline=False)
+    embed.add_field(
+        name="Usage",
+        value=f"Start a debate with this figure using:\n`!debate {figure_key} [topic]`",
+        inline=False
+    )
+    
+    await ctx.send(f"✅ Successfully created a debate persona for **{figure_data['name']}**!", embed=embed)
+
+@bot.command(name="helpfigures", help="Learn how to use the historical figures feature")
+async def help_figures(ctx):
+    """Show help information about the historical figures feature."""
+    embed = discord.Embed(
+        title="Historical Figures in Debates",
+        description="Debate with the bot as if you were talking to historical figures from throughout time.",
+        color=discord.Color.blue()
+    )
+    
+    embed.add_field(
+        name="Pre-defined Figures",
+        value="Use `!figures` to see the list of pre-defined historical figures\n"
+              "Use `!figure [name]` to see details about a specific figure\n"
+              "Example: `!figure churchill`",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="Creating Custom Figures",
+        value="You can create any historical figure with:\n"
+              "`!customfigure [full name]`\n"
+              "Examples:\n"
+              "• `!customfigure Napoleon Bonaparte`\n"
+              "• `!customfigure Queen Elizabeth I`\n"
+              "• `!customfigure Genghis Khan`",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="Starting a Debate",
+        value="Start a debate with a historical figure:\n"
+              "`!debate [figure] [topic]`\n"
+              "Examples:\n"
+              "• `!debate aristotle ethics`\n"
+              "• `!debate churchill hard democracy`\n"
+              "• `!debate napoleon_bonaparte war`",
+        inline=False
+    )
     
     await ctx.send(embed=embed)
 

@@ -214,6 +214,154 @@ class FactChecker:
         # Limit to 1-2 claims to avoid excessive API usage
         return claims[:2]
 
+class HistoricalFigures:
+    """Manages historical figure personas for debates"""
+    
+    def __init__(self):
+        # Dictionary of historical figures with their details
+        self.figures = {
+            "socrates": {
+                "name": "Socrates",
+                "era": "Ancient Greece (470–399 BCE)",
+                "description": "Athenian philosopher known for the Socratic method of questioning.",
+                "style": "Constantly questions assumptions, avoids making direct assertions, and leads others to their own contradictions.",
+                "beliefs": "Valued wisdom, virtue, and the pursuit of truth. Believed that knowledge comes from questioning and self-examination.",
+                "prompt": "You are debating as Socrates, the ancient Greek philosopher. Use the Socratic method by asking probing questions to lead the user to examine their own beliefs. Don't make direct assertions, but rather guide through questions. Begin responses with questions. Phrase things as 'Perhaps we should consider...' or 'What if we examined...' End with reflective questions."
+            },
+            "churchill": {
+                "name": "Winston Churchill",
+                "era": "British Statesman (1874-1965)",
+                "description": "British Prime Minister who led the UK during World War II.",
+                "style": "Eloquent, witty, and uses powerful rhetoric with memorable turns of phrase.",
+                "beliefs": "Strong defender of democracy, liberty, and Western civilization against totalitarianism.",
+                "prompt": "You are debating as Winston Churchill, the British statesman and wartime leader. Use powerful rhetoric, memorable phrases, and occasional wit or sarcasm. Be steadfast in your principles, particularly regarding freedom and democracy. Speak with unwavering resolve. Use British phrases and occasionally refer to historical events from WWII as analogies."
+            },
+            "mlk": {
+                "name": "Martin Luther King Jr.",
+                "era": "American Civil Rights Leader (1929-1968)",
+                "description": "Minister and activist who led the civil rights movement.",
+                "style": "Eloquent, inspiring, and morally persuasive with religious references.",
+                "beliefs": "Advocated for racial equality, nonviolence, and social justice through peaceful protest.",
+                "prompt": "You are debating as Martin Luther King Jr., the civil rights leader. Emphasize moral arguments, use religious references where appropriate, and focus on ideals of equality and justice. Speak with passion and conviction about human dignity. Use rhetorical devices like repetition and metaphor, and occasionally reference the American dream and constitutional principles."
+            },
+            "marx": {
+                "name": "Karl Marx",
+                "era": "Philosopher & Economist (1818-1883)",
+                "description": "German philosopher and economist who developed communist theory.",
+                "style": "Analytical, critical of capitalism, and focused on economic class dynamics.",
+                "beliefs": "Advocated for workers' rights, criticized capitalism's exploitation, and promoted collective ownership.",
+                "prompt": "You are debating as Karl Marx, the philosopher and economic theorist. Analyze issues through the lens of class struggle and economic systems. Critique capitalism frequently, emphasize the exploitation of workers, and advocate for collective solutions. Use terms like 'bourgeoisie,' 'proletariat,' and 'means of production.' Reference historical materialism and the inevitable progression of economic systems."
+            },
+            "thatcher": {
+                "name": "Margaret Thatcher",
+                "era": "British Prime Minister (1925-2013)",
+                "description": "First female British PM known for conservative policies.",
+                "style": "Direct, unyielding, and focused on individual responsibility and free markets.",
+                "beliefs": "Strong supporter of free markets, reduced government spending, and traditional values.",
+                "prompt": "You are debating as Margaret Thatcher, the former British Prime Minister. Be direct and unyielding in your arguments. Emphasize individualism, personal responsibility, and free market solutions. Express skepticism of government programs and state control. Use phrases like 'There is no alternative' or refer to the dangers of socialism. Occasionally mention your background as a grocer's daughter to emphasize your practical approach."
+            },
+            "gandhi": {
+                "name": "Mahatma Gandhi",
+                "era": "Indian Independence Leader (1869-1948)",
+                "description": "Led India's independence movement through nonviolent resistance.",
+                "style": "Gentle but firm, principled, and focused on moral arguments and nonviolence.",
+                "beliefs": "Advocated for nonviolence, civil disobedience, self-reliance, and religious tolerance.",
+                "prompt": "You are debating as Mahatma Gandhi, the Indian independence leader. Emphasize nonviolent approaches and moral principles. Speak simply but profoundly, occasionally referencing truth, love, and self-discipline. Advocate for self-reliance and principled resistance to unjust systems. Use gentle but firm language, and occasionally refer to your own experiences with civil disobedience."
+            },
+            "aristotle": {
+                "name": "Aristotle",
+                "era": "Ancient Greek Philosopher (384-322 BCE)",
+                "description": "Influential philosopher who studied under Plato and tutored Alexander the Great.",
+                "style": "Systematic, logical, and focused on practical wisdom and the golden mean.",
+                "beliefs": "Believed in virtue ethics, moderation, and finding the middle ground between extremes.",
+                "prompt": "You are debating as Aristotle, the ancient Greek philosopher. Approach arguments systematically, identify different categories of understanding, and emphasize balance and moderation (the 'golden mean'). Refer to virtues and the good life. Begin by analyzing the nature or essence of the topic. Occasionally reference your biological observations or political theories. Use logical structures and acknowledge complexity."
+            },
+            "roosevelt": {
+                "name": "Franklin D. Roosevelt",
+                "era": "US President (1882-1945)",
+                "description": "US President who led during the Great Depression and WWII.",
+                "style": "Optimistic, reassuring, and focused on government action to help citizens.",
+                "beliefs": "Championed government programs to help ordinary people, regulate business, and ensure economic security.",
+                "prompt": "You are debating as Franklin D. Roosevelt, the US President during the Great Depression and WWII. Express optimism even in difficult times, advocate for government programs to help ordinary citizens, and emphasize the role of government in ensuring economic security. Occasionally reference your New Deal programs or the fight against fascism. Use warm, reassuring language that conveys confidence."
+            }
+        }
+    
+    def get_figure_names(self):
+        """Returns a list of available historical figures"""
+        return sorted(self.figures.keys())
+    
+    def get_figure_details(self, figure_id):
+        """Returns details about a specific historical figure"""
+        figure_id = figure_id.lower()
+        if figure_id in self.figures:
+            return self.figures[figure_id]
+        return None
+    
+    def get_prompt_for_figure(self, figure_id):
+        """Returns the specialized prompt for a historical figure"""
+        figure_id = figure_id.lower()
+        if figure_id in self.figures:
+            base_prompt = SYSTEM_PROMPT
+            figure_prompt = self.figures[figure_id]["prompt"]
+            return f"{base_prompt}\n\nIMPORTANT ADDITIONAL INSTRUCTIONS:\n{figure_prompt}"
+        return SYSTEM_PROMPT  # Return default prompt if figure not found
+
+    async def generate_custom_figure(self, figure_name, client):
+        """
+        Dynamically generate a persona for any historical figure requested by the user
+        """
+        # Use the Mistral API to generate a custom persona for the requested figure
+        prompt = f"""Create a debate persona for the historical figure: {figure_name}.
+        
+        Format your response as JSON with these fields:
+        - name: The historical figure's full name
+        - era: When they lived (years and context)
+        - description: A brief description of who they were
+        - style: Their speaking/argument style
+        - beliefs: Their key beliefs or positions
+        - prompt: Instructions for an AI to emulate their debate style (be specific about tone, rhetoric, philosophical approach, and phrases they would use)
+        
+        Be historically accurate but focus on aspects that would be relevant in a modern debate.
+        """
+        
+        try:
+            response = await client.chat.complete_async(
+                model="mistral-large-latest",
+                messages=[{"role": "user", "content": prompt}]
+            )
+            
+            # Extract the response content
+            content = response.choices[0].message.content
+            
+            # Find JSON content in the response (it might be wrapped in markdown code blocks)
+            import re
+            import json
+            
+            # Try to extract JSON from markdown code blocks first
+            json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', content)
+            if json_match:
+                json_str = json_match.group(1)
+            else:
+                # If no code blocks, use the whole response
+                json_str = content
+            
+            # Clean up the text to ensure it's valid JSON
+            # Remove any non-JSON text before or after
+            json_str = re.sub(r'^[^{]*', '', json_str)
+            json_str = re.sub(r'[^}]*$', '', json_str)
+            
+            figure_data = json.loads(json_str)
+            
+            # Add to custom figures with a lowercase key
+            custom_key = figure_name.lower().replace(" ", "_")
+            self.figures[custom_key] = figure_data
+            
+            return custom_key, figure_data
+        
+        except Exception as e:
+            print(f"Error generating custom figure: {e}")
+            return None, {"error": str(e)}
+
 class MistralAgent:
     def __init__(self):
         MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
@@ -222,7 +370,30 @@ class MistralAgent:
             {"role": "system", "content": SYSTEM_PROMPT}
         ]
         self.fact_checker = FactChecker()
+        self.historical_figures = HistoricalFigures()
+        self.current_figure = None
 
+    def set_historical_figure(self, figure_id):
+        """Set the bot to speak as a historical figure"""
+        figure = self.historical_figures.get_figure_details(figure_id)
+        if figure:
+            # Update the system prompt with the historical figure's instructions
+            new_prompt = self.historical_figures.get_prompt_for_figure(figure_id)
+            # Reset conversation with new prompt
+            self.conversation_history = [
+                {"role": "system", "content": new_prompt}
+            ]
+            self.current_figure = figure
+            return True
+        return False
+    
+    def reset_persona(self):
+        """Reset to default debate persona"""
+        self.conversation_history = [
+            {"role": "system", "content": SYSTEM_PROMPT}
+        ]
+        self.current_figure = None
+    
     async def fact_check_and_respond(self, message: discord.Message):
         """Check facts in user message, then respond with debate points"""
         # Extract claims from the user's message
