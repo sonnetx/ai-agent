@@ -58,7 +58,40 @@ async def on_ready():
     # starts the conversation by greeting the user
     channel = bot.get_channel(CHANNEL_ID)
     if channel:
-        await channel.send(f"Hello, I'm EchoBreaker! I'm here to help you learn about the world of politics through debate. Would you like to get started? Type `!debate` to begin.")
+        welcome_embed = discord.Embed(
+            title="EchoBreaker Debate Bot",
+            description="I'm here to help you sharpen your debate skills by challenging you with strong political viewpoints.",
+            color=discord.Color.blue()
+        )
+        welcome_embed.add_field(
+            name="How to start",
+            value="Type `!debate [topic]` to begin a debate\nExample: `!debate climate change` or just `!debate` for a random topic",
+            inline=False
+        )
+        welcome_embed.add_field(
+            name="Difficulty levels",
+            value="`!debate easy [topic]` - For beginners (0.8x points)\n"
+                 "`!debate normal [topic]` - Standard difficulty (1.0x points)\n"
+                 "`!debate hard [topic]` - For experienced debaters (1.2x points)",
+            inline=False
+        )
+        welcome_embed.add_field(
+            name="Commands",
+            value="`!stats` - View your debate statistics\n"
+                 "`!leaderboard` - See top debaters\n"
+                 "`!enddebate` - End current debate session",
+            inline=False
+        )
+        welcome_embed.add_field(
+            name="Earning Points",
+            value="• Longer debates earn more points (up to 30 base points)\n"
+                 "• Longer, thoughtful responses get bonus points\n"
+                 "• Complete debates daily to build your streak\n"
+                 "• Earn achievements to showcase your skills",
+            inline=False
+        )
+        
+        await channel.send("Hello, I'm EchoBreaker! Ready to debate?", embed=welcome_embed)
 
 @bot.event
 async def on_message(message: discord.Message):
@@ -82,8 +115,13 @@ async def on_message(message: discord.Message):
         debate_info = active_debates[message.author.id]
         debate_info["messages_count"] += 1
         
-        # Award points based on message quality (length)
+        # Track total characters for averaging later
         message_length = len(message.content)
+        if "total_chars" not in debate_info:
+            debate_info["total_chars"] = 0
+        debate_info["total_chars"] += message_length
+        
+        # Award points based on message quality (length)
         if message_length > 300:
             quality_points = 3
         elif message_length > 150:
@@ -252,6 +290,20 @@ async def enddebate(ctx):
         stats_embed = create_stats_embed(ctx.author, stats)
         await ctx.send("Your updated stats:", embed=stats_embed)
         
+        # Generate and show debate feedback
+        feedback = generate_debate_feedback(debate_info)
+        
+        feedback_embed = discord.Embed(
+            title="Debate Feedback",
+            description="Here's some feedback to help improve your debating skills:",
+            color=discord.Color.purple()
+        )
+        
+        for i, tip in enumerate(feedback):
+            feedback_embed.add_field(name=f"Tip {i+1}", value=tip, inline=False)
+            
+        await ctx.send(embed=feedback_embed)
+        
         del active_debates[user_id]
     else:
         await ctx.send("You don't have an active debate session.")
@@ -328,6 +380,53 @@ def create_stats_embed(user, stats):
         embed.add_field(name="Achievements", value=achievements_list, inline=False)
     
     return embed
+
+# Add this new function near the stats embed function
+def generate_debate_feedback(debate_info):
+    """Generates constructive feedback for the user based on their debate performance."""
+    message_count = debate_info["messages_count"]
+    avg_message_length = debate_info.get("total_chars", 0) / max(message_count, 1)
+    duration_minutes = (datetime.datetime.now() - debate_info["start_time"]).total_seconds() / 60
+    
+    # Generate appropriate feedback based on metrics
+    feedback = []
+    
+    # Engagement feedback
+    if message_count < 3:
+        feedback.append("Try to engage more deeply in the debate. Aim for at least 3-4 exchanges to develop your arguments fully.")
+    elif message_count > 8:
+        feedback.append("Great engagement level! You maintained a sustained conversation.")
+    
+    # Message length feedback
+    if avg_message_length < 100:
+        feedback.append("Your responses were quite brief. Try to elaborate more on your arguments with examples and evidence.")
+    elif avg_message_length > 300:
+        feedback.append("You provided detailed responses, which is excellent for presenting thorough arguments.")
+    
+    # Debate duration feedback
+    if duration_minutes < 5:
+        feedback.append("Consider spending more time developing your arguments. Longer debates allow for deeper exploration of topics.")
+    elif duration_minutes > 15:
+        feedback.append("You demonstrated strong commitment by sustaining a lengthy debate. This shows dedication to the topic.")
+    
+    # Add random debate tips
+    debate_tips = [
+        "When countering an argument, first acknowledge it before presenting your rebuttal.",
+        "Using specific examples strengthens your arguments more than general statements.",
+        "Try the 'steel man' technique: present your opponent's argument in its strongest form before countering it.",
+        "Focus on addressing the strongest points in your opponent's argument, not just the weakest ones.",
+        "Maintaining a respectful tone makes your arguments more persuasive than aggressive language.",
+        "Cite specific sources when possible to add credibility to your claims.",
+        "Use questions strategically to expose flaws in your opponent's reasoning.",
+        "Connect abstract principles to concrete impacts to make your arguments more relatable.",
+        "Consider the practical implications of your position to strengthen its real-world relevance.",
+        "Structure your arguments clearly with a main claim followed by supporting evidence."
+    ]
+    
+    # Add 2 random tips
+    feedback.extend(random.sample(debate_tips, 2))
+    
+    return feedback
 
 # Start the bot, connecting it to the gateway
 bot.run(token)
