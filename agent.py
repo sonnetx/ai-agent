@@ -313,9 +313,25 @@ class HistoricalFigures:
         """Returns the specialized prompt for a historical figure"""
         figure_id = figure_id.lower()
         if figure_id in self.figures:
-            base_prompt = SYSTEM_PROMPT
+            # Get the base debate functionality but prioritize the historical figure's voice
+            base_prompt = """You are participating in a political debate on a current topic.
+Your primary role is to:
+1. Take strong positions and defend them
+2. Challenge the user's arguments with counterpoints
+3. Keep responses concise (under 1000 characters)
+4. Never concede major points or switch sides"""
+            
             figure_prompt = self.figures[figure_id]["prompt"]
-            return f"{base_prompt}\n\nIMPORTANT ADDITIONAL INSTRUCTIONS:\n{figure_prompt}"
+            
+            # Create a combined prompt that emphasizes the historical figure's voice
+            combined_prompt = f"""MOST IMPORTANT: {figure_prompt}
+
+While maintaining the above historical persona completely, also incorporate these debate mechanics:
+{base_prompt}
+
+Remember, your primary identity is as {self.figures[figure_id]['name']} - your language, reasoning style, values, and worldview should consistently reflect this historical figure throughout the entire debate. Never break character."""
+            
+            return combined_prompt
         return SYSTEM_PROMPT  # Return default prompt if figure not found
 
     async def generate_custom_figure(self, figure_name, client):
@@ -440,13 +456,17 @@ class MistralAgent:
         
         # If we have fact check results, add them as a system message
         if fact_check_results:
-            system_msg = f"The user made some factual claims. Here are the fact check results you should consider in your response:\n"
+            # Check if we're debating as a historical figure
+            persona_reminder = ""
+            if self.current_figure:
+                persona_reminder = f"IMPORTANT: You are speaking as {self.current_figure['name']}. Maintain this historical figure's voice, style, and perspective completely while addressing these claims."
+            
+            system_msg = f"{persona_reminder}\nThe user made some factual claims. Here are the fact check results you should consider in your response:\n"
             for i, check in enumerate(fact_check_results, 1):
                 system_msg += f"Claim: \"{check['claim']}\"\n"
                 system_msg += f"Verdict: {check['verdict']}\n"
-                system_msg += f"Take this information into account when responding. If the claim is False or Partly True, " \
-                              f"point this out politely but firmly in your response. If True, you may still challenge the " \
-                              f"relevance or implications of the claim.\n\n"
+                system_msg += f"Address this claim in a way that's consistent with your character's worldview and knowledge. " \
+                              f"If the claim is False or Partly True, challenge it. If True, you may still interpret it through your historical lens.\n\n"
             
             self.conversation_history.append({"role": "system", "content": system_msg})
         
@@ -483,6 +503,40 @@ class MistralAgent:
         if result["fact_check"]:
             return result["response"] + "\n" + result["fact_check"]
         return result["response"]
+
+    def reinforce_persona(self):
+        """
+        Reinforce the historical figure's persona during long debates
+        to prevent character drift
+        """
+        if not self.current_figure:
+            return  # No persona to reinforce
+        
+        # Check if we have enough conversation history to need reinforcement
+        if len(self.conversation_history) >= 6:  # After a few exchanges
+            # Add a reminder to stay in character
+            reminder = {
+                "role": "system", 
+                "content": f"IMPORTANT REMINDER: You are {self.current_figure['name']}. Continue to speak authentically as this historical figure would, using their characteristic language, rhetorical style, and expressing their worldview. Maintain this persona completely in your next response."
+            }
+            
+            # Insert the reminder before the most recent user message
+            self.conversation_history.insert(-1, reminder)
+            
+            # Keep conversation history from growing too large
+            if len(self.conversation_history) > 10:
+                # Keep the system prompts, plus the 4 most recent messages
+                system_prompts = [msg for msg in self.conversation_history if msg["role"] == "system"]
+                recent_messages = self.conversation_history[-4:]
+                
+                # Reconstruct conversation with system prompts and recent messages
+                self.conversation_history = []
+                # First add the initial system prompt (the persona)
+                self.conversation_history.append(system_prompts[0])
+                # Then add the personality reminder
+                self.conversation_history.append(reminder)
+                # Then add recent messages
+                self.conversation_history.extend(recent_messages)
 
 class DebateStatsTracker:
     def __init__(self, file_path="debate_stats.json"):
