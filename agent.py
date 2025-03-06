@@ -404,7 +404,91 @@ class MistralAgent:
         self.fact_checker = FactChecker()
         self.historical_figures = HistoricalFigures()
         self.current_figure = None
-
+        self.debate_level = "intermediate"  # Default debate level
+    
+    def set_debate_level(self, level):
+        """Set the unified debate level (combines difficulty and complexity)"""
+        valid_levels = ["beginner", "intermediate", "advanced"]
+        if level.lower() in valid_levels:
+            self.debate_level = level.lower()
+            return True
+        return False
+    
+    def get_debate_level_description(self):
+        """Get a description of the current debate level"""
+        descriptions = {
+            "beginner": {
+                "name": "Beginner",
+                "difficulty": "Easy - I'll be more willing to concede points and use gentler counterarguments",
+                "complexity": "High School level vocabulary and straightforward reasoning",
+                "point_multiplier": 0.8,
+                "features": [
+                    "Simpler vocabulary and sentence structure",
+                    "More willing to acknowledge your points",
+                    "Clearer explanations with concrete examples",
+                    "Less aggressive challenging of your arguments"
+                ]
+            },
+            "intermediate": {
+                "name": "Intermediate",
+                "difficulty": "Normal - I'll present balanced arguments with moderate intensity",
+                "complexity": "College level vocabulary and nuanced reasoning",
+                "point_multiplier": 1.0,
+                "features": [
+                    "Moderate vocabulary and some specialized terms",
+                    "Balanced approach to counterarguments",
+                    "Mix of theoretical concepts and practical examples",
+                    "Firm defense of position with occasional concessions"
+                ]
+            },
+            "advanced": {
+                "name": "Advanced",
+                "difficulty": "Hard - I'll aggressively defend my position and thoroughly challenge yours",
+                "complexity": "Professor level vocabulary with sophisticated reasoning",
+                "point_multiplier": 1.2,
+                "features": [
+                    "Advanced vocabulary and complex sentence structures",
+                    "Aggressive defense of position with minimal concessions",
+                    "Sophisticated arguments drawing on multiple disciplines",
+                    "Rigorous challenging of your arguments' premises and logic"
+                ]
+            }
+        }
+        return descriptions.get(self.debate_level, descriptions["intermediate"])
+    
+    def _get_level_instructions(self):
+        """Get system instructions for the current debate level"""
+        instructions = {
+            "beginner": """
+DEBATE LEVEL: BEGINNER
+- Use vocabulary and sentence structures accessible to high school students
+- Present your arguments clearly with straightforward reasoning
+- Be somewhat willing to acknowledge the validity of the user's points
+- Provide concrete examples and simple analogies
+- Challenge the user's arguments gently, focusing on major flaws
+- Keep sentences relatively short and direct
+""",
+            "intermediate": """
+DEBATE LEVEL: INTERMEDIATE
+- Use vocabulary and sentence structures appropriate for college-educated adults
+- Present nuanced arguments that consider multiple perspectives
+- Maintain your position firmly but acknowledge reasonable points
+- Balance theoretical concepts with practical examples
+- Challenge the user's arguments directly but respectfully
+- Use moderately complex sentence structures and rhetorical techniques
+""",
+            "advanced": """
+DEBATE LEVEL: ADVANCED
+- Use advanced vocabulary, complex sentence structures, and sophisticated rhetorical techniques
+- Present complex, multi-layered arguments drawing on interdisciplinary knowledge
+- Aggressively defend your position with minimal concessions
+- Make nuanced distinctions and address subtle counterarguments
+- Rigorously challenge the premises and logic of the user's arguments
+- Use abstract reasoning and hypothetical scenarios to strengthen your position
+"""
+        }
+        return instructions.get(self.debate_level, instructions["intermediate"])
+    
     def set_historical_figure(self, figure_id):
         """Set the bot to speak as a historical figure"""
         figure = self.historical_figures.get_figure_details(figure_id)
@@ -431,7 +515,6 @@ class MistralAgent:
         # Extract claims from the user's message
         claims = self.fact_checker.extract_claims(message.content)
         fact_check_results = []
-        fact_check_summary = ""
         
         # Perform fact checking if claims were found
         if claims:
@@ -444,13 +527,6 @@ class MistralAgent:
                         "explanation": result["explanation"]
                     })
         
-        # Create a fact check summary if we have results
-        if fact_check_results:
-            fact_check_summary = "\n\nFACT CHECK RESULTS:\n"
-            for i, check in enumerate(fact_check_results, 1):
-                fact_check_summary += f"Claim {i}: \"{check['claim']}\"\n"
-                fact_check_summary += f"Verdict: {check['verdict']}\n\n"
-        
         # Add the user message to conversation history
         self.conversation_history.append({"role": "user", "content": message.content})
         
@@ -461,7 +537,10 @@ class MistralAgent:
             if self.current_figure:
                 persona_reminder = f"IMPORTANT: You are speaking as {self.current_figure['name']}. Maintain this historical figure's voice, style, and perspective completely while addressing these claims."
             
-            system_msg = f"{persona_reminder}\nThe user made some factual claims. Here are the fact check results you should consider in your response:\n"
+            # Add complexity reminder
+            complexity_reminder = self._get_level_instructions()
+            
+            system_msg = f"{persona_reminder}\n{complexity_reminder}\nThe user made some factual claims. Here are the fact check results you should consider in your response:\n"
             for i, check in enumerate(fact_check_results, 1):
                 system_msg += f"Claim: \"{check['claim']}\"\n"
                 system_msg += f"Verdict: {check['verdict']}\n"

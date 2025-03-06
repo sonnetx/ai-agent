@@ -106,6 +106,14 @@ async def on_ready():
                   "`!debate [figure] [topic]` - Debate as a historical figure",
             inline=False
         )
+        welcome_embed.add_field(
+            name="Complexity Levels",
+            value="`!debate highschool [topic]` - Simpler language and arguments\n"
+                  "`!debate college [topic]` - Standard complexity (default)\n"
+                  "`!debate professor [topic]` - Advanced vocabulary and reasoning\n"
+                  "Type `!complexity` for more details",
+            inline=False
+        )
         
         await channel.send("Hello, I'm EchoBreaker! Ready to debate?", embed=welcome_embed)
 
@@ -182,7 +190,7 @@ async def on_message(message: discord.Message):
             await message.channel.send(embed=fact_check_embed)
 
 # Commands
-@bot.command(name="debate", help="Start a political debate with the bot. Optional: [figure] [difficulty] [topic]")
+@bot.command(name="debate", help="Start a political debate with the bot. Optional: [figure] [level] [topic]")
 async def debate(ctx, arg1=None, arg2=None, *, topic=None):
     """
     Start a debate session with the bot.
@@ -191,8 +199,8 @@ async def debate(ctx, arg1=None, arg2=None, *, topic=None):
     !debate - Start debate with random topic
     !debate topic - Start debate on specific topic
     !debate figure topic - Start debate as historical figure
-    !debate difficulty topic - Start debate with difficulty setting
-    !debate figure difficulty topic - Full specification
+    !debate level topic - Start debate with specific level
+    !debate figure level topic - Full specification
     """
     user_id = ctx.author.id
     
@@ -203,27 +211,16 @@ async def debate(ctx, arg1=None, arg2=None, *, topic=None):
     
     # Parse the arguments
     figure = None
-    difficulty = "normal"
+    level = "intermediate"  # Default level
     
-    # Process first argument with better feedback
+    # Process arguments
     if arg1:
-        # Check if arg1 is a figure name (with more robust checking)
-        figure_details = debate_agent.historical_figures.get_figure_details(arg1)
-        if figure_details:
+        # Check if arg1 is a figure name
+        if debate_agent.historical_figures.get_figure_details(arg1):
             figure = arg1
-        # Check if arg1 is a difficulty
-        elif arg1.lower() in ["easy", "normal", "hard"]:
-            difficulty = arg1.lower()
-        # Check if it might be an unknown historical figure (looks like a name)
-        elif any(x.isalpha() for x in arg1) and "_" in arg1:
-            # Try checking without underscores
-            no_underscore = arg1.replace("_", " ")
-            figure_details = debate_agent.historical_figures.get_figure_details(no_underscore)
-            if figure_details:
-                figure = no_underscore
-            else:
-                await ctx.send(f"I don't recognize '{arg1}' as a historical figure. To create this figure, use:\n`!customfigure {arg1.replace('_', ' ')}`")
-                return
+        # Check if arg1 is a level
+        elif arg1.lower() in ["beginner", "intermediate", "advanced"]:
+            level = arg1.lower()
         # Otherwise it's part of the topic
         else:
             if topic:
@@ -237,24 +234,19 @@ async def debate(ctx, arg1=None, arg2=None, *, topic=None):
     
     # Process second argument if first was used
     if arg1 and arg2:
-        # If we already have a figure, check for difficulty
-        if figure and arg2 in ["easy", "normal", "hard"]:
-            difficulty = arg2
+        # If we already have a figure, check for level
+        if figure and arg2.lower() in ["beginner", "intermediate", "advanced"]:
+            level = arg2.lower()
         # Otherwise it's part of the topic
         else:
             if topic:
                 topic = f"{arg2} {topic}"
             else:
                 topic = arg2
-            arg2 = None
     
-    # Inform user about difficulty level
-    difficulty_factor = {"easy": 0.8, "normal": 1.0, "hard": 1.2}
-    difficulty_desc = {
-        "easy": "I'll take it easy on you and be more willing to concede points.",
-        "normal": "I'll present a balanced debate with moderate intensity.",
-        "hard": "I'll aggressively defend my position and challenge your arguments thoroughly."
-    }
+    # Set the debate level
+    debate_agent.set_debate_level(level)
+    level_info = debate_agent.get_debate_level_description()
     
     # Set historical figure if specified
     figure_desc = ""
@@ -266,10 +258,37 @@ async def debate(ctx, arg1=None, arg2=None, *, topic=None):
         debate_agent.reset_persona()
     
     # Display settings
-    await ctx.send(
-        f"{figure_desc}**Difficulty: {difficulty.upper()}**\n{difficulty_desc[difficulty]}\n" +
-        f"Point multiplier: {difficulty_factor[difficulty]}x"
+    settings_embed = discord.Embed(
+        title="Debate Settings",
+        color=discord.Color.blue()
     )
+    
+    if figure:
+        settings_embed.add_field(
+            name="Historical Figure",
+            value=f"{figure_details['name']} ({figure_details['era']})",
+            inline=False
+        )
+    
+    settings_embed.add_field(
+        name="Level",
+        value=f"{level_info['name']} (x{level_info['point_multiplier']} points)",
+        inline=True
+    )
+    
+    settings_embed.add_field(
+        name="Difficulty",
+        value=level_info['difficulty'],
+        inline=False
+    )
+    
+    settings_embed.add_field(
+        name="Complexity",
+        value=level_info['complexity'],
+        inline=False
+    )
+    
+    await ctx.send("Debate settings:", embed=settings_embed)
     
     if topic:
         await ctx.send(f"Let's start a debate about {topic}! I'll find a relevant news article for us to discuss...")
@@ -300,7 +319,7 @@ async def debate(ctx, arg1=None, arg2=None, *, topic=None):
     # Set up the debate agent with context about the article
     setup_message = FakeMessage(
         content=f"Take a strong political position on this news article: {title}. {description} " +
-                f"Difficulty level: {difficulty}",
+                f"Difficulty level: {level}",
         author=ctx.author
     )
     
@@ -324,7 +343,7 @@ async def debate(ctx, arg1=None, arg2=None, *, topic=None):
     active_debates[user_id] = {
         "article": top_article,
         "start_time": datetime.datetime.now(),
-        "difficulty": difficulty,
+        "level": level,
         "points_accumulated": 0,
         "messages_count": 0
     }
@@ -345,13 +364,13 @@ async def enddebate(ctx):
         duration = (datetime.datetime.now() - start_time).total_seconds()
         
         # Get difficulty multiplier
-        difficulty = debate_info["difficulty"]
-        difficulty_factor = {"easy": 0.8, "normal": 1.0, "hard": 1.2}
+        level = debate_info["level"]
+        level_info = debate_agent.get_debate_level_description()
         
         # Award points and update stats
         result = stats_tracker.complete_debate(user_id, int(duration))
         points_earned = result["points_earned"]
-        adjusted_points = int(points_earned * difficulty_factor[difficulty])
+        adjusted_points = int(points_earned * level_info['point_multiplier'])
         
         # Add bonus points based on message count
         message_count = debate_info["messages_count"]
@@ -369,7 +388,7 @@ async def enddebate(ctx):
         )
         
         embed.add_field(name="Base Points", value=f"{points_earned} pts", inline=True)
-        embed.add_field(name="Difficulty Bonus", value=f"{difficulty.capitalize()} ({difficulty_factor[difficulty]}x)", inline=True)
+        embed.add_field(name="Level", value=f"{level_info['name']} (x{level_info['point_multiplier']} points)", inline=True)
         embed.add_field(name="Message Bonus", value=f"+{message_bonus} pts", inline=True)
         embed.add_field(name="Debate Duration", value=f"{int(duration // 60)} minutes", inline=True)
         embed.add_field(name="Messages Sent", value=str(message_count), inline=True)
@@ -647,6 +666,124 @@ async def list_custom_figures(ctx):
                   f"**Usage:** `!debate {figure_id} [topic]`",
             inline=False
         )
+    
+    await ctx.send(embed=embed)
+
+@bot.command(name="complexity", help="Explains the available linguistic complexity levels")
+async def explain_complexity(ctx):
+    """Explains the linguistic complexity levels to users."""
+    embed = discord.Embed(
+        title="Debate Complexity Levels",
+        description="Choose the linguistic and argumentative complexity that matches your skill level:",
+        color=discord.Color.blue()
+    )
+    
+    # Get descriptions from the agent
+    highschool = debate_agent.set_complexity("highschool")
+    highschool_info = debate_agent.get_complexity_description()
+    
+    college = debate_agent.set_complexity("college")
+    college_info = debate_agent.get_complexity_description()
+    
+    professor = debate_agent.set_complexity("professor")
+    professor_info = debate_agent.get_complexity_description()
+    
+    # Reset to default
+    debate_agent.set_complexity("college")
+    
+    # Add fields for each level
+    embed.add_field(
+        name="🏫 High School Level",
+        value=highschool_info["description"] + "\n\n**Features:**\n• " + "\n• ".join(highschool_info["features"]),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="🎓 College Level",
+        value=college_info["description"] + "\n\n**Features:**\n• " + "\n• ".join(college_info["features"]),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="👨‍🏫 Professor Level",
+        value=professor_info["description"] + "\n\n**Features:**\n• " + "\n• ".join(professor_info["features"]),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="Usage",
+        value="Set the complexity when starting a debate:\n"
+              "`!debate highschool [topic]`\n"
+              "`!debate college [topic]`\n"
+              "`!debate professor [topic]`\n\n"
+              "You can combine with other options:\n"
+              "`!debate churchill professor democracy`\n"
+              "`!debate hard highschool climate change`",
+        inline=False
+    )
+    
+    await ctx.send(embed=embed)
+
+@bot.command(name="levels", help="Explains the available debate levels")
+async def explain_levels(ctx):
+    """Explains the debate levels to users."""
+    embed = discord.Embed(
+        title="Debate Levels",
+        description="Choose the debate level that matches your skill and experience:",
+        color=discord.Color.blue()
+    )
+    
+    # Get descriptions from the agent
+    beginner = debate_agent.set_debate_level("beginner")
+    beginner_info = debate_agent.get_debate_level_description()
+    
+    intermediate = debate_agent.set_debate_level("intermediate")
+    intermediate_info = debate_agent.get_debate_level_description()
+    
+    advanced = debate_agent.set_debate_level("advanced")
+    advanced_info = debate_agent.get_debate_level_description()
+    
+    # Reset to default
+    debate_agent.set_debate_level("intermediate")
+    
+    # Add fields for each level
+    embed.add_field(
+        name="🔰 Beginner Level",
+        value=f"**Difficulty**: {beginner_info['difficulty']}\n"
+              f"**Complexity**: {beginner_info['complexity']}\n"
+              f"**Point Multiplier**: {beginner_info['point_multiplier']}x\n\n"
+              f"**Features:**\n• " + "\n• ".join(beginner_info["features"]),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="🏆 Intermediate Level",
+        value=f"**Difficulty**: {intermediate_info['difficulty']}\n"
+              f"**Complexity**: {intermediate_info['complexity']}\n"
+              f"**Point Multiplier**: {intermediate_info['point_multiplier']}x\n\n"
+              f"**Features:**\n• " + "\n• ".join(intermediate_info["features"]),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="⚔️ Advanced Level",
+        value=f"**Difficulty**: {advanced_info['difficulty']}\n"
+              f"**Complexity**: {advanced_info['complexity']}\n"
+              f"**Point Multiplier**: {advanced_info['point_multiplier']}x\n\n"
+              f"**Features:**\n• " + "\n• ".join(advanced_info["features"]),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="Usage",
+        value="Set the level when starting a debate:\n"
+              "`!debate beginner [topic]`\n"
+              "`!debate intermediate [topic]`\n"
+              "`!debate advanced [topic]`\n\n"
+              "You can combine with historical figures:\n"
+              "`!debate churchill advanced democracy`",
+        inline=False
+    )
     
     await ctx.send(embed=embed)
 
