@@ -3,6 +3,8 @@ from mistralai import Mistral
 import discord
 import requests
 import datetime
+import json
+import os.path
 
 MISTRAL_MODEL = "mistral-large-latest"
 SYSTEM_PROMPT = """You are EchoBreaker, a debate bot that takes strong political positions to engage users in thoughtful debate.
@@ -133,3 +135,105 @@ class MistralAgent:
         self.conversation_history.append({"role": "assistant", "content": assistant_message.content})
         
         return assistant_message.content
+
+class DebateStatsTracker:
+    def __init__(self, file_path="debate_stats.json"):
+        self.file_path = file_path
+        self.stats = self._load_stats()
+    
+    def _load_stats(self):
+        if os.path.exists(self.file_path):
+            try:
+                with open(self.file_path, 'r') as f:
+                    return json.load(f)
+            except:
+                return {}
+        return {}
+    
+    def _save_stats(self):
+        with open(self.file_path, 'w') as f:
+            json.dump(self.stats, f)
+    
+    def get_user_stats(self, user_id):
+        user_id = str(user_id)  # Convert to string for JSON
+        if user_id not in self.stats:
+            self.stats[user_id] = {
+                "debates_completed": 0,
+                "points": 0,
+                "streak": 0,
+                "longest_streak": 0,
+                "last_debate": None,
+                "level": 1,
+                "achievements": []
+            }
+            self._save_stats()
+        return self.stats[user_id]
+    
+    def add_points(self, user_id, points):
+        user_id = str(user_id)
+        stats = self.get_user_stats(user_id)
+        stats["points"] += points
+        
+        # Update level based on points
+        new_level = 1 + stats["points"] // 100
+        if new_level > stats["level"]:
+            stats["level"] = new_level
+            
+        self._save_stats()
+        return stats
+    
+    def complete_debate(self, user_id, duration_seconds):
+        user_id = str(user_id)
+        stats = self.get_user_stats(user_id)
+        stats["debates_completed"] += 1
+        
+        # Calculate points based on debate duration (longer debates = more points)
+        # Cap at 30 points max
+        points = min(duration_seconds // 60, 30)
+        stats["points"] += points
+        
+        # Update streak
+        today = datetime.date.today().isoformat()
+        if stats["last_debate"] != today:
+            stats["streak"] += 1
+            stats["longest_streak"] = max(stats["longest_streak"], stats["streak"])
+        stats["last_debate"] = today
+        
+        # Update level
+        new_level = 1 + stats["points"] // 100
+        if new_level > stats["level"]:
+            stats["level"] = new_level
+        
+        # Check for achievements
+        self._check_achievements(user_id, stats)
+        
+        self._save_stats()
+        return {
+            "stats": stats,
+            "points_earned": points
+        }
+    
+    def _check_achievements(self, user_id, stats):
+        # Define achievements
+        achievements = [
+            {"id": "first_debate", "name": "First Debate", "condition": stats["debates_completed"] >= 1},
+            {"id": "debate_master", "name": "Debate Master", "condition": stats["debates_completed"] >= 10},
+            {"id": "point_collector", "name": "Point Collector", "condition": stats["points"] >= 100},
+            {"id": "streak_3", "name": "3-Day Streak", "condition": stats["streak"] >= 3},
+            {"id": "high_level", "name": "Skilled Debater", "condition": stats["level"] >= 3}
+        ]
+        
+        # Add new achievements
+        new_achievements = []
+        for achievement in achievements:
+            if achievement["id"] not in stats["achievements"] and achievement["condition"]:
+                stats["achievements"].append(achievement["id"])
+                new_achievements.append(achievement["name"])
+        
+        return new_achievements
+    
+    def get_leaderboard(self, limit=10):
+        # Convert to list of (id, stats) tuples, sort by points
+        users = [(uid, data) for uid, data in self.stats.items()]
+        top_users = sorted(users, key=lambda x: x[1]["points"], reverse=True)[:limit]
+        return top_users
