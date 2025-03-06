@@ -85,6 +85,29 @@ class NewsAgent:
         else:
             return []
 
+    def get_article_by_topic(self, topic):
+        """Get a news article related to the specified topic."""
+        url = ('https://newsapi.org/v2/everything?'
+            f'q={topic}&'
+            'from=' + (datetime.date.today() - datetime.timedelta(days=7)).isoformat() + '&'
+            'sortBy=popularity&'
+            f'apiKey={self.NEWS_API_KEY}')
+        
+        response = requests.get(url).json()
+        
+        # Check if articles exist in the response
+        if 'articles' in response and len(response['articles']) > 0:
+            return response['articles'][0]
+        else:
+            # If no articles found on the topic, return a default message
+            return {
+                "title": f"No articles found about '{topic}'",
+                "author": "Unknown",
+                "description": f"Could not find recent articles about '{topic}'. Let's discuss this topic anyway based on our general knowledge.",
+                "url": "",
+                "content": ""
+            }
+
 class MistralAgent:
     def __init__(self):
         MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")

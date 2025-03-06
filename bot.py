@@ -88,8 +88,8 @@ async def on_message(message: discord.Message):
                 await message.channel.send(f"**Part {i+1}/{len(chunks)}**: {chunk}")
 
 # Commands
-@bot.command(name="debate", help="Start a political debate with the bot.")
-async def debate(ctx):
+@bot.command(name="debate", help="Start a political debate with the bot. Optionally specify a topic.")
+async def debate(ctx, *, topic=None):
     """Start a debate session with the bot using a current news article."""
     user_id = ctx.author.id
     
@@ -98,10 +98,14 @@ async def debate(ctx):
         await ctx.send("You're already in an active debate! Type `!enddebate` to end it first.")
         return
     
-    await ctx.send("Let's start a debate! I'll find a current news article for us to discuss...")
-    
-    # Pull an article from the news API
-    top_article = news_agent.get_top_article()
+    if topic:
+        await ctx.send(f"Let's start a debate about {topic}! I'll find a relevant news article for us to discuss...")
+        # Get an article related to the specified topic
+        top_article = news_agent.get_article_by_topic(topic)
+    else:
+        await ctx.send("Let's start a debate! I'll find a current news article for us to discuss...")
+        # Pull a random top article from the news API
+        top_article = news_agent.get_top_article()
 
     title = top_article["title"]
     author = top_article["author"] if top_article["author"] else "Unknown author"
@@ -118,7 +122,7 @@ async def debate(ctx):
     article_embed.set_author(name=author)
     article_embed.set_footer(text="Source: NewsAPI")
     
-    await ctx.send("Here's a current news article:", embed=article_embed)
+    await ctx.send("Here's a news article on this topic:", embed=article_embed)
     
     # Set up the debate agent with context about the article
     setup_message = FakeMessage(
