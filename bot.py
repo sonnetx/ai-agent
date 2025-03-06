@@ -69,10 +69,11 @@ async def on_ready():
             inline=False
         )
         welcome_embed.add_field(
-            name="Difficulty levels",
-            value="`!debate easy [topic]` - For beginners (0.8x points)\n"
-                 "`!debate normal [topic]` - Standard difficulty (1.0x points)\n"
-                 "`!debate hard [topic]` - For experienced debaters (1.2x points)",
+            name="Debate Levels",
+            value="`!debate beginner [topic]` - Simpler language & gentler arguments (0.8x points)\n"
+                 "`!debate intermediate [topic]` - Standard level (1.0x points)\n"
+                 "`!debate advanced [topic]` - Complex language & aggressive arguments (1.2x points)\n"
+                 "Type `!levels` for more details",
             inline=False
         )
         welcome_embed.add_field(
@@ -94,8 +95,7 @@ async def on_ready():
             name="Features",
             value="• Gamified debates with points and levels\n"
                   "• AI-powered fact-checking of your claims\n"
-                  "• Personalized feedback to improve your skills\n"
-                  "• Multiple difficulty levels",
+                  "• Personalized feedback to improve your skills",
             inline=False
         )
         welcome_embed.add_field(
@@ -103,15 +103,7 @@ async def on_ready():
             value="`!figures` - View available historical figures\n"
                   "`!figure [name]` - View details about a figure\n"
                   "`!customfigure [name]` - Create any historical figure\n"
-                  "`!debate [figure] [topic]` - Debate as a historical figure",
-            inline=False
-        )
-        welcome_embed.add_field(
-            name="Complexity Levels",
-            value="`!debate highschool [topic]` - Simpler language and arguments\n"
-                  "`!debate college [topic]` - Standard complexity (default)\n"
-                  "`!debate professor [topic]` - Advanced vocabulary and reasoning\n"
-                  "Type `!complexity` for more details",
+                  "`!debate [figure] [level] [topic]` - Debate as a historical figure",
             inline=False
         )
         
@@ -515,7 +507,7 @@ async def list_figures(ctx):
     
     embed = discord.Embed(
         title="Available Historical Figures",
-        description="Choose a historical figure for your next debate using `!debate [figure] [topic]`\nExample: `!debate churchill democracy`",
+        description="Choose a historical figure for your next debate using `!debate [figure] [level] [topic]`\nExample: `!debate churchill democracy`",
         color=discord.Color.gold()
     )
     
@@ -550,7 +542,7 @@ async def figure_details(ctx, figure_id):
     embed.add_field(name="Key Beliefs", value=figure["beliefs"], inline=False)
     embed.add_field(
         name="Usage",
-        value=f"Start a debate with this figure using:\n`!debate {figure_id.lower()} [topic]`",
+        value=f"Start a debate with this figure using:\n`!debate {figure_id.lower()} [level] [topic]`",
         inline=False
     )
     
@@ -593,7 +585,7 @@ async def create_custom_figure(ctx, *, figure_name):
     embed.add_field(name="Key Beliefs", value=figure_data["beliefs"], inline=False)
     embed.add_field(
         name="Usage",
-        value=f"Start a debate with this figure using:\n`!debate {figure_key} [topic]`",
+        value=f"Start a debate with this figure using:\n`!debate {figure_key} [level] [topic]`",
         inline=False
     )
     
@@ -630,7 +622,7 @@ async def help_figures(ctx):
     embed.add_field(
         name="Starting a Debate",
         value="Start a debate with a historical figure:\n"
-              "`!debate [figure] [topic]`\n"
+              "`!debate [figure] [level] [topic]`\n"
               "Examples:\n"
               "• `!debate aristotle ethics`\n"
               "• `!debate churchill hard democracy`\n"
@@ -663,7 +655,7 @@ async def list_custom_figures(ctx):
         embed.add_field(
             name=figure["name"],
             value=f"**Era:** {figure['era']}\n"
-                  f"**Usage:** `!debate {figure_id} [topic]`",
+                  f"**Usage:** `!debate {figure_id} [level] [topic]`",
             inline=False
         )
     
