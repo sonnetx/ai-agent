@@ -5,6 +5,7 @@ import requests
 import datetime
 import json
 import os.path
+from urllib.parse import quote
 
 MISTRAL_MODEL = "mistral-large-latest"
 SYSTEM_PROMPT = """You are EchoBreaker, a debate bot that takes VERY STRONG political positions to engage users in thoughtful debate.
@@ -110,6 +111,109 @@ class NewsAgent:
                 "content": ""
             }
 
+class FactChecker:
+    def __init__(self):
+        self.PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
+        self.headers = {
+            "Authorization": f"Bearer {self.PERPLEXITY_API_KEY}",
+            "Content-Type": "application/json"
+        }
+    
+    async def check_claim(self, claim):
+        """
+        Use Perplexity API to check a factual claim.
+        Returns a dict with verification results.
+        """
+        if not self.PERPLEXITY_API_KEY:
+            return {"success": False, "error": "No API key found for Perplexity"}
+        
+        # Format the prompt for fact-checking
+        prompt = f"Fact check the following claim and determine if it's accurate. Reply with:\n" \
+                 f"1. Whether the claim is True, False, Partly True, or Needs Context\n" \
+                 f"2. A brief explanation of your assessment\n" \
+                 f"3. References to support your assessment\n\n" \
+                 f"Claim: {claim}"
+        
+        try:
+            response = requests.post(
+                "https://api.perplexity.ai/chat/completions",
+                headers=self.headers,
+                json={
+                    "model": "sonar-medium-online",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "stream": False
+                }
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                fact_check_text = result["choices"][0]["message"]["content"]
+                
+                # Extract verdict and explanation
+                verdict = "Needs verification"
+                explanation = fact_check_text
+                references = []
+                
+                # Simple parsing of the response
+                if "True" in fact_check_text[:100]:
+                    verdict = "True"
+                elif "False" in fact_check_text[:100]:
+                    verdict = "False"
+                elif "Partly True" in fact_check_text[:100]:
+                    verdict = "Partly True"
+                elif "Needs Context" in fact_check_text[:100]:
+                    verdict = "Needs Context"
+                
+                # Extract references if they exist
+                if "References:" in fact_check_text:
+                    refs_section = fact_check_text.split("References:")[1].strip()
+                    # Simple parsing to extract references
+                    references = [r.strip() for r in refs_section.split("\n") if r.strip()]
+                
+                return {
+                    "success": True,
+                    "verdict": verdict,
+                    "explanation": explanation,
+                    "references": references,
+                    "raw_response": fact_check_text
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"API request failed with status code {response.status_code}",
+                    "response": response.text
+                }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    def extract_claims(self, text):
+        """
+        Extract potential factual claims from a message.
+        Returns a list of claim strings.
+        """
+        # This is a simplified approach - in production, you might use NLP models
+        sentences = [s.strip() for s in text.split('.') if len(s.strip()) > 20]
+        claims = []
+        
+        # Heuristics to identify likely factual claims
+        claim_indicators = [
+            "according to", "studies show", "research indicates", "statistics show",
+            "% of", "percent of", "data shows", "evidence suggests", "report",
+            "survey", "poll", "analysis", "fact", "figures", "rates", "numbers",
+            "in 2", "increase", "decrease", "rise", "fall", "grew", "declined"
+        ]
+        
+        for sentence in sentences:
+            # Check if the sentence contains any claim indicators
+            if any(indicator in sentence.lower() for indicator in claim_indicators):
+                claims.append(sentence)
+        
+        # Limit to 1-2 claims to avoid excessive API usage
+        return claims[:2]
+
 class MistralAgent:
     def __init__(self):
         MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
@@ -117,10 +221,47 @@ class MistralAgent:
         self.conversation_history = [
             {"role": "system", "content": SYSTEM_PROMPT}
         ]
+        self.fact_checker = FactChecker()
 
-    async def run(self, message: discord.Message):
+    async def fact_check_and_respond(self, message: discord.Message):
+        """Check facts in user message, then respond with debate points"""
+        # Extract claims from the user's message
+        claims = self.fact_checker.extract_claims(message.content)
+        fact_check_results = []
+        fact_check_summary = ""
+        
+        # Perform fact checking if claims were found
+        if claims:
+            for claim in claims:
+                result = await self.fact_checker.check_claim(claim)
+                if result["success"]:
+                    fact_check_results.append({
+                        "claim": claim,
+                        "verdict": result["verdict"],
+                        "explanation": result["explanation"]
+                    })
+        
+        # Create a fact check summary if we have results
+        if fact_check_results:
+            fact_check_summary = "\n\nFACT CHECK RESULTS:\n"
+            for i, check in enumerate(fact_check_results, 1):
+                fact_check_summary += f"Claim {i}: \"{check['claim']}\"\n"
+                fact_check_summary += f"Verdict: {check['verdict']}\n\n"
+        
         # Add the user message to conversation history
         self.conversation_history.append({"role": "user", "content": message.content})
+        
+        # If we have fact check results, add them as a system message
+        if fact_check_results:
+            system_msg = f"The user made some factual claims. Here are the fact check results you should consider in your response:\n"
+            for i, check in enumerate(fact_check_results, 1):
+                system_msg += f"Claim: \"{check['claim']}\"\n"
+                system_msg += f"Verdict: {check['verdict']}\n"
+                system_msg += f"Take this information into account when responding. If the claim is False or Partly True, " \
+                              f"point this out politely but firmly in your response. If True, you may still challenge the " \
+                              f"relevance or implications of the claim.\n\n"
+            
+            self.conversation_history.append({"role": "system", "content": system_msg})
         
         # Get response from Mistral
         response = await self.client.chat.complete_async(
@@ -134,7 +275,27 @@ class MistralAgent:
         # Add the assistant's response to conversation history
         self.conversation_history.append({"role": "assistant", "content": assistant_message.content})
         
-        return assistant_message.content
+        # If we have fact check results, prepare them for display
+        fact_check_display = ""
+        if fact_check_results:
+            fact_check_display = "\n\n**Fact Check Results:**\n"
+            for i, check in enumerate(fact_check_results, 1):
+                fact_check_display += f"📊 **Claim {i}**: \"{check['claim']}\"\n"
+                verdict_emoji = "✅" if check['verdict'] == "True" else "❌" if check['verdict'] == "False" else "⚠️"
+                fact_check_display += f"{verdict_emoji} **Verdict**: {check['verdict']}\n\n"
+        
+        # Return both the bot's response and the fact check display
+        return {
+            "response": assistant_message.content,
+            "fact_check": fact_check_display if fact_check_results else None
+        }
+    
+    async def run(self, message: discord.Message):
+        """Legacy method for compatibility"""
+        result = await self.fact_check_and_respond(message)
+        if result["fact_check"]:
+            return result["response"] + "\n" + result["fact_check"]
+        return result["response"]
 
 class DebateStatsTracker:
     def __init__(self, file_path="debate_stats.json"):

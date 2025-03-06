@@ -90,6 +90,14 @@ async def on_ready():
                  "• Earn achievements to showcase your skills",
             inline=False
         )
+        welcome_embed.add_field(
+            name="Features",
+            value="• Gamified debates with points and levels\n"
+                  "• AI-powered fact-checking of your claims\n"
+                  "• Personalized feedback to improve your skills\n"
+                  "• Multiple difficulty levels",
+            inline=False
+        )
         
         await channel.send("Hello, I'm EchoBreaker! Ready to debate?", embed=welcome_embed)
 
@@ -133,17 +141,34 @@ async def on_message(message: discord.Message):
             
         debate_info["points_accumulated"] += quality_points
         
-        # sends the user's message to the agent
-        response = await debate_agent.run(message)
+        # Use the enhanced fact-checking response method
+        response_data = await debate_agent.fact_check_and_respond(message)
+        response = response_data["response"]
+        fact_check = response_data["fact_check"]
         
-        # Split long responses into multiple messages
+        # Award bonus points for accurate claims
+        if fact_check and "✅" in fact_check:
+            debate_info["points_accumulated"] += 2
+            fact_check += "\n*+2 points awarded for accurate claims!*"
+        
+        # Send the response
         if len(response) <= 2000:
             await message.reply(response)
         else:
-            # Split the response into chunks of 1900 characters (leaving room for "Part X/Y: " prefix)
+            # Split the response into chunks of 1900 characters
             chunks = [response[i:i+1900] for i in range(0, len(response), 1900)]
             for i, chunk in enumerate(chunks):
                 await message.channel.send(f"**Part {i+1}/{len(chunks)}**: {chunk}")
+        
+        # If there's a fact check, send it as a separate embed
+        if fact_check:
+            fact_check_embed = discord.Embed(
+                title="Fact Check Results",
+                description=fact_check,
+                color=discord.Color.blue()
+            )
+            fact_check_embed.set_footer(text="Powered by Perplexity AI")
+            await message.channel.send(embed=fact_check_embed)
 
 # Commands
 @bot.command(name="debate", help="Start a political debate with the bot. Optionally specify a topic and difficulty.")
@@ -347,6 +372,44 @@ async def leaderboard(ctx):
             value=f"Level {user_stats['level']} • {user_stats['points']} pts • {user_stats['debates_completed']} debates",
             inline=False
         )
+    
+    await ctx.send(embed=embed)
+
+@bot.command(name="factcheck", help="Explains how the fact-checking feature works")
+async def explain_factcheck(ctx):
+    """Explains the fact-checking feature to users."""
+    embed = discord.Embed(
+        title="Fact-Checking in Debates",
+        description="EchoBreaker uses AI-powered fact-checking to verify claims made during debates.",
+        color=discord.Color.blue()
+    )
+    
+    embed.add_field(
+        name="How it works",
+        value="When you make factual claims in your arguments, the bot will:\n"
+              "1. Detect potential factual statements\n"
+              "2. Verify them using Perplexity's search capabilities\n"
+              "3. Display the results alongside the bot's response",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="Verdicts",
+        value="✅ **True**: Claim is accurate based on reliable sources\n"
+              "⚠️ **Partly True** or **Needs Context**: Claim has some accuracy but is missing important context\n"
+              "❌ **False**: Claim contradicts reliable sources",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="Benefits",
+        value="• Earn bonus points for accurate claims\n"
+              "• Learn to distinguish facts from opinions\n"
+              "• Improve your research and argumentation skills",
+        inline=False
+    )
+    
+    embed.set_footer(text="Fact-checking powered by Perplexity AI")
     
     await ctx.send(embed=embed)
 
