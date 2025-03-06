@@ -292,9 +292,21 @@ class HistoricalFigures:
     
     def get_figure_details(self, figure_id):
         """Returns details about a specific historical figure"""
-        figure_id = figure_id.lower()
-        if figure_id in self.figures:
-            return self.figures[figure_id]
+        if not figure_id:
+            return None
+            
+        # Try different formats for the figure ID
+        figure_id_variations = [
+            figure_id.lower(),                       # original (lowercase)
+            figure_id.lower().replace("_", " "),     # replace underscores with spaces
+            figure_id.lower().replace(" ", "_")      # replace spaces with underscores
+        ]
+        
+        # Try each variation
+        for variation in figure_id_variations:
+            if variation in self.figures:
+                return self.figures[variation]
+                
         return None
     
     def get_prompt_for_figure(self, figure_id):
@@ -352,11 +364,15 @@ class HistoricalFigures:
             
             figure_data = json.loads(json_str)
             
-            # Add to custom figures with a lowercase key
-            custom_key = figure_name.lower().replace(" ", "_")
-            self.figures[custom_key] = figure_data
+            # Add to custom figures with consistent naming (both space and underscore versions)
+            space_key = figure_name.lower()
+            underscore_key = figure_name.lower().replace(" ", "_")
             
-            return custom_key, figure_data
+            self.figures[space_key] = figure_data
+            if space_key != underscore_key:
+                self.figures[underscore_key] = figure_data
+            
+            return underscore_key, figure_data  # Return underscore version for cleaner commands
         
         except Exception as e:
             print(f"Error generating custom figure: {e}")

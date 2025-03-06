@@ -202,18 +202,25 @@ async def debate(ctx, arg1=None, arg2=None, *, topic=None):
     figure = None
     difficulty = "normal"
     
-    # Process first argument
+    # Process first argument with better feedback
     if arg1:
-        # Check if arg1 is a figure name
-        if debate_agent.historical_figures.get_figure_details(arg1):
+        # Check if arg1 is a figure name (with more robust checking)
+        figure_details = debate_agent.historical_figures.get_figure_details(arg1)
+        if figure_details:
             figure = arg1
         # Check if arg1 is a difficulty
-        elif arg1 in ["easy", "normal", "hard"]:
-            difficulty = arg1
-        # Check if it might be an unknown historical figure
-        elif arg1.isalpha() and len(arg1) > 3 and not arg1.isdigit():
-            await ctx.send(f"I don't recognize '{arg1}' as a historical figure. Use `!figures` to see available options or create a custom figure with `!customfigure {arg1}`.")
-            return
+        elif arg1.lower() in ["easy", "normal", "hard"]:
+            difficulty = arg1.lower()
+        # Check if it might be an unknown historical figure (looks like a name)
+        elif any(x.isalpha() for x in arg1) and "_" in arg1:
+            # Try checking without underscores
+            no_underscore = arg1.replace("_", " ")
+            figure_details = debate_agent.historical_figures.get_figure_details(no_underscore)
+            if figure_details:
+                figure = no_underscore
+            else:
+                await ctx.send(f"I don't recognize '{arg1}' as a historical figure. To create this figure, use:\n`!customfigure {arg1.replace('_', ' ')}`")
+                return
         # Otherwise it's part of the topic
         else:
             if topic:
@@ -608,6 +615,35 @@ async def help_figures(ctx):
               "• `!debate napoleon_bonaparte war`",
         inline=False
     )
+    
+    await ctx.send(embed=embed)
+
+@bot.command(name="myfigures", help="List the custom historical figures you've created")
+async def list_custom_figures(ctx):
+    """Show a list of custom historical figures created by users."""
+    # Get all figures
+    all_figures = debate_agent.historical_figures.figures
+    
+    # Filter to likely custom figures (those with underscores in keys)
+    custom_figures = {k: v for k, v in all_figures.items() if "_" in k and " " not in k}
+    
+    if not custom_figures:
+        await ctx.send("No custom historical figures have been created yet. Create one with `!customfigure [name]`!")
+        return
+    
+    embed = discord.Embed(
+        title="Custom Historical Figures",
+        description="Here are the custom historical figures that have been created:",
+        color=discord.Color.purple()
+    )
+    
+    for figure_id, figure in custom_figures.items():
+        embed.add_field(
+            name=figure["name"],
+            value=f"**Era:** {figure['era']}\n"
+                  f"**Usage:** `!debate {figure_id} [topic]`",
+            inline=False
+        )
     
     await ctx.send(embed=embed)
 
