@@ -6,6 +6,9 @@ import datetime
 import json
 import os.path
 from urllib.parse import quote
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 MISTRAL_MODEL = "mistral-large-latest"
 SYSTEM_PROMPT = """You are EchoBreaker, a debate bot that takes VERY STRONG political positions to engage users in thoughtful debate.
@@ -406,6 +409,8 @@ class MistralAgent:
         self.user_figures = {}
         # Replace single debate_level with a dictionary keyed by user ID
         self.user_debate_levels = {}
+        # Add email manager
+        self.email_manager = EmailManager()
     
     def _get_user_conversation(self, user_id):
         """Get conversation history for a specific user, creating it if needed"""
@@ -652,6 +657,8 @@ class DebateStatsTracker:
     def __init__(self, file_path="debate_stats.json"):
         self.file_path = file_path
         self.stats = self._load_stats()
+        # Add reference to email manager
+        self.email_manager = EmailManager()
     
     def _load_stats(self):
         if os.path.exists(self.file_path):
@@ -749,3 +756,246 @@ class DebateStatsTracker:
         users = [(uid, data) for uid, data in self.stats.items()]
         top_users = sorted(users, key=lambda x: x[1]["points"], reverse=True)[:limit]
         return top_users
+
+class EmailManager:
+    """Manages sending debate summary emails to users"""
+    
+    def __init__(self):
+        # Get email configuration from environment variables
+        self.email_enabled = False
+        self.smtp_server = os.getenv("EMAIL_SMTP_SERVER", "smtp.gmail.com")
+        self.smtp_port = int(os.getenv("EMAIL_SMTP_PORT", "587"))
+        self.sender_email = os.getenv("EMAIL_SENDER")
+        self.sender_password = os.getenv("EMAIL_PASSWORD")
+        
+        # Check if email functionality is properly configured
+        if self.sender_email and self.sender_password:
+            self.email_enabled = True
+        
+        # Dictionary to store user email addresses
+        self.user_emails = {}
+        self._load_user_emails()
+    
+    def _load_user_emails(self):
+        """Load saved user email addresses from file"""
+        try:
+            if os.path.exists("user_emails.json"):
+                with open("user_emails.json", "r") as f:
+                    self.user_emails = json.load(f)
+        except Exception as e:
+            print(f"Error loading user emails: {e}")
+    
+    def _save_user_emails(self):
+        """Save user email addresses to file"""
+        try:
+            with open("user_emails.json", "w") as f:
+                json.dump(self.user_emails, f)
+        except Exception as e:
+            print(f"Error saving user emails: {e}")
+    
+    def set_user_email(self, user_id, email):
+        """Set a user's email address"""
+        self.user_emails[str(user_id)] = email
+        self._save_user_emails()
+        return True
+    
+    def get_user_email(self, user_id):
+        """Get a user's email address if saved"""
+        return self.user_emails.get(str(user_id))
+    
+    def remove_user_email(self, user_id):
+        """Remove a user's email address"""
+        if str(user_id) in self.user_emails:
+            del self.user_emails[str(user_id)]
+            self._save_user_emails()
+            return True
+        return False
+    
+    def format_debate_email(self, debate_info, stats, participant, feedback, winner_info=None):
+        """
+        Format a debate summary email with coach-like feedback
+        
+        Args:
+            debate_info: Dictionary with debate information
+            stats: User's debate statistics
+            participant: Discord user object for the participant
+            feedback: List of feedback points
+            winner_info: Optional winner information
+            
+        Returns:
+            Tuple of (subject, plain_text, html)
+        """
+        debate_topic = debate_info["article"]["title"]
+        debate_date = datetime.datetime.now().strftime("%B %d, %Y")
+        
+        # Create plain text version
+        text = f"DEBATE SUMMARY - {debate_date}\n\n"
+        text += f"Topic: {debate_topic}\n"
+        text += f"Participant: {participant.name}\n"
+        text += f"Duration: {int((datetime.datetime.now() - debate_info['start_time']).total_seconds() / 60)} minutes\n"
+        
+        if winner_info:
+            text += f"Winner: {winner_info['name']}\n"
+        
+        # Add stats section
+        text += "\n\nDEBATE STATISTICS\n"
+        text += f"Messages sent: {debate_info['participants'][str(participant.id)]['messages_count']}\n"
+        text += f"Points earned: {debate_info['participants'][str(participant.id)]['points_accumulated']}\n"
+        text += f"Total debate level: {stats['level']} ({stats['points']} points)\n"
+        text += f"Debate streak: {stats['streak']} days\n"
+        
+        # Add feedback section
+        text += "\n\nDEBATE COACH FEEDBACK\n"
+        for i, point in enumerate(feedback, 1):
+            text += f"{i}. {point}\n"
+        
+        # Add argument analysis
+        text += "\n\nARGUMENT ANALYSIS\n"
+        
+        # Calculate metrics based on available data
+        avg_length = debate_info['participants'][str(participant.id)].get('total_chars', 0) / max(1, debate_info['participants'][str(participant.id)]['messages_count'])
+        
+        # Provide analysis based on message length
+        if avg_length < 100:
+            text += "- Your responses tended to be brief. Consider developing your arguments more fully.\n"
+        elif avg_length > 300:
+            text += "- You provided substantial responses, showing good depth in your arguments.\n"
+        
+        text += "- Key strengths: "
+        if avg_length > 200:
+            text += "argument development, "
+        if debate_info['participants'][str(participant.id)]['messages_count'] > 5:
+            text += "consistent engagement, "
+        text += "willingness to engage with challenging viewpoints\n"
+        
+        text += "\n\nPRACTICE SUGGESTIONS\n"
+        text += "1. Focus on developing counterarguments to opposing positions\n"
+        text += "2. Practice identifying logical fallacies in arguments\n"
+        text += "3. Work on providing specific evidence to support your claims\n"
+        
+        text += "\n\nThis email was sent by EchoBreaker Debate Bot. You can change your email settings with the !email command in Discord."
+        
+        # Create HTML version
+        html = f"""
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 800px; margin: 0 auto; padding: 20px; }}
+                h1, h2 {{ color: #2c3e50; }}
+                .stats {{ background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; }}
+                .feedback {{ margin: 20px 0; }}
+                .feedback-item {{ margin-bottom: 10px; }}
+                .analysis {{ background-color: #e8f4f8; padding: 15px; border-radius: 5px; margin: 20px 0; }}
+                .footer {{ font-size: 12px; color: #6c757d; margin-top: 30px; border-top: 1px solid #dee2e6; padding-top: 10px; }}
+            </style>
+        </head>
+        <body>
+            <h1>Debate Summary</h1>
+            <p><strong>Date:</strong> {debate_date}</p>
+            <p><strong>Topic:</strong> {debate_topic}</p>
+            <p><strong>Participant:</strong> {participant.name}</p>
+            <p><strong>Duration:</strong> {int((datetime.datetime.now() - debate_info['start_time']).total_seconds() / 60)} minutes</p>
+        """
+        
+        if winner_info:
+            html += f"<p><strong>Winner:</strong> {winner_info['name']}</p>"
+        
+        # Add stats section
+        html += f"""
+            <div class="stats">
+                <h2>Debate Statistics</h2>
+                <p><strong>Messages sent:</strong> {debate_info['participants'][str(participant.id)]['messages_count']}</p>
+                <p><strong>Points earned:</strong> {debate_info['participants'][str(participant.id)]['points_accumulated']}</p>
+                <p><strong>Total debate level:</strong> {stats['level']} ({stats['points']} points)</p>
+                <p><strong>Debate streak:</strong> {stats['streak']} days</p>
+            </div>
+        """
+        
+        # Add feedback section
+        html += f"""
+            <div class="feedback">
+                <h2>Debate Coach Feedback</h2>
+        """
+        
+        for point in feedback:
+            html += f'<div class="feedback-item">• {point}</div>'
+        
+        html += "</div>"
+        
+        # Add argument analysis
+        html += """
+            <div class="analysis">
+                <h2>Argument Analysis</h2>
+        """
+        
+        # Provide analysis based on message length
+        if avg_length < 100:
+            html += "<p>Your responses tended to be brief. Consider developing your arguments more fully.</p>"
+        elif avg_length > 300:
+            html += "<p>You provided substantial responses, showing good depth in your arguments.</p>"
+        
+        html += "<p><strong>Key strengths:</strong> "
+        if avg_length > 200:
+            html += "argument development, "
+        if debate_info['participants'][str(participant.id)]['messages_count'] > 5:
+            html += "consistent engagement, "
+        html += "willingness to engage with challenging viewpoints</p>"
+        
+        html += """
+                <h3>Practice Suggestions</h3>
+                <ol>
+                    <li>Focus on developing counterarguments to opposing positions</li>
+                    <li>Practice identifying logical fallacies in arguments</li>
+                    <li>Work on providing specific evidence to support your claims</li>
+                </ol>
+            </div>
+            <div class="footer">
+                This email was sent by EchoBreaker Debate Bot. You can change your email settings with the !email command in Discord.
+            </div>
+        </body>
+        </html>
+        """
+        
+        subject = f"Debate Summary: {debate_topic} - {debate_date}"
+        
+        return (subject, text, html)
+    
+    def send_debate_summary(self, user_id, debate_info, stats, participant, feedback, winner_info=None):
+        """
+        Send a debate summary email to a user
+        
+        Returns:
+            tuple: (success, message)
+        """
+        if not self.email_enabled:
+            return (False, "Email service is not configured properly")
+        
+        email = self.get_user_email(user_id)
+        if not email:
+            return (False, "No email address registered for this user")
+        
+        try:
+            subject, text, html = self.format_debate_email(debate_info, stats, participant, feedback, winner_info)
+            
+            message = MIMEMultipart("alternative")
+            message["Subject"] = subject
+            message["From"] = self.sender_email
+            message["To"] = email
+            
+            # Add plain text and HTML parts
+            part1 = MIMEText(text, "plain")
+            part2 = MIMEText(html, "html")
+            message.attach(part1)
+            message.attach(part2)
+            
+            # Send email
+            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+                server.starttls()
+                server.login(self.sender_email, self.sender_password)
+                server.sendmail(self.sender_email, email, message.as_string())
+            
+            return (True, "Email successfully sent")
+            
+        except Exception as e:
+            print(f"Error sending email: {e}")
+            return (False, f"Error sending email: {str(e)}")

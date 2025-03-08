@@ -6,10 +6,11 @@ import datetime
 import json
 import random
 from collections import defaultdict
+import re
 
 from discord.ext import commands
 from dotenv import load_dotenv
-from agent import MistralAgent, NewsAgent, DebateStatsTracker
+from agent import MistralAgent, NewsAgent, DebateStatsTracker, EmailManager
 
 PREFIX = "!"
 
@@ -83,7 +84,16 @@ async def on_ready():
             name="Commands",
             value="`!stats` - View your debate statistics\n"
                  "`!leaderboard` - See top debaters\n"
-                 "`!enddebate` - End current debate session",
+                 "`!enddebate` - End current debate session\n"
+                 "`!enddebate email` - End debate and receive summary by email",
+            inline=False
+        )
+        welcome_embed.add_field(
+            name="Email Features",
+            value="• Get detailed debate summaries sent to your inbox\n"
+                 "• Receive coach-like feedback and performance analysis\n"
+                 "• Use `!email set youremail@example.com` to register\n"
+                 "• Type `!emailhelp` for more information",
             inline=False
         )
         welcome_embed.add_field(
@@ -98,7 +108,8 @@ async def on_ready():
             name="Features",
             value="• Gamified debates with points and levels\n"
                   "• AI-powered fact-checking of your claims\n"
-                  "• Personalized feedback to improve your skills",
+                  "• Personalized feedback to improve your skills\n"
+                  "• Email summaries with debate coach analysis",
             inline=False
         )
         welcome_embed.add_field(
@@ -380,8 +391,15 @@ async def debate(ctx, arg1=None, arg2=None, *, topic=None):
     await ctx.send("\n\n👥 **Others can join this debate by typing `!join @" + ctx.author.name + "`**")
 
 @bot.command(name="enddebate", help="End your current debate session.")
-async def enddebate(ctx):
-    """End the current debate session and award points to all participants."""
+async def enddebate(ctx, send_email: str = None):
+    """
+    End the current debate session and award points to all participants.
+    Optionally send a debate summary email.
+    
+    Usage:
+    !enddebate - End debate without email
+    !enddebate email - End debate and send summary to your registered email
+    """
     user_id = ctx.author.id
     
     # Only the initiator can end the debate
@@ -396,6 +414,17 @@ async def enddebate(ctx):
             await ctx.send("You don't have an active debate session.")
         return
     
+    # Check if user wants to send email
+    send_email_summary = False
+    if send_email and send_email.lower() in ["email", "sendemail", "email=true", "true"]:
+        # Check if user has an email address registered
+        if debate_agent.email_manager.get_user_email(user_id):
+            send_email_summary = True
+        else:
+            # Inform user they need to set an email address
+            await ctx.send("You haven't registered an email address. Use `!email set youremail@example.com` to register, then try again.")
+            # Continue with ending the debate without email
+    
     debate_info = active_debates[user_id]
     debate_id = f"debate-{user_id}"
     debate_topic = debate_info["article"]["title"]
@@ -409,12 +438,15 @@ async def enddebate(ctx):
     # Get winner name
     if winner_id == "bot":
         winner_name = "EchoBreaker AI"
+        winner_info = {"name": winner_name, "is_bot": True}
     else:
         try:
             winner_user = await bot.fetch_user(int(winner_id))
             winner_name = winner_user.name
+            winner_info = {"name": winner_name, "is_bot": False, "user": winner_user}
         except:
             winner_name = "Unknown Debater"
+            winner_info = {"name": winner_name, "is_bot": False}
     
     # Announce the winner dramatically
     await announce_winner(ctx, winner_id, winner_name, winning_reasons, debate_topic)
@@ -478,8 +510,13 @@ async def enddebate(ctx):
         # Add note about the winner bonus
         summary_embed.add_field(name="Winner Bonus", value=f"**{winner_name}** earned a **+{winner_bonus} point** victory bonus!", inline=False)
     
+    # Generate debate feedback for each participant
+    feedback = generate_debate_feedback(debate_info)
+    
     # Process results for each participant
     participant_results = []
+    email_sent_status = []
+    
     for participant_id in all_participants:
         try:
             participant = await bot.fetch_user(participant_id)
@@ -528,6 +565,24 @@ async def enddebate(ctx):
                 "stats": stats
             })
             
+            # Send email if requested by the debate initiator
+            if send_email_summary and (participant_id == user_id or debate_agent.email_manager.get_user_email(participant_id)):
+                # Only send email to the initiator or participants who have emails registered
+                is_initiator = participant_id == user_id
+                has_email = debate_agent.email_manager.get_user_email(participant_id) is not None
+                
+                if is_initiator or has_email:
+                    # Try to send email
+                    email_success, email_message = debate_agent.email_manager.send_debate_summary(
+                        participant_id, debate_info, stats, participant, feedback, winner_info
+                    )
+                    
+                    # Add to status report
+                    if email_success:
+                        email_sent_status.append(f"✅ Email summary sent to {participant.name}")
+                    else:
+                        email_sent_status.append(f"❌ Failed to send email to {participant.name}: {email_message}")
+            
             # Remove from participant tracking
             if participant_id in user_current_debate:
                 del user_current_debate[participant_id]
@@ -566,14 +621,28 @@ async def enddebate(ctx):
     # Send the summary
     await ctx.send("Full debate results:", embed=summary_embed)
     
+    # Show email sent status if any
+    if email_sent_status:
+        email_status_embed = discord.Embed(
+            title="Email Summary Status",
+            description="\n".join(email_sent_status),
+            color=discord.Color.blue()
+        )
+        
+        email_status_embed.add_field(
+            name="Set Email Address",
+            value="To receive debate summaries via email, use the `!email set youremail@example.com` command",
+            inline=False
+        )
+        
+        await ctx.send(embed=email_status_embed)
+    
     # Show initiator's stats
     initiator_stats = stats_tracker.get_user_stats(user_id)
     stats_embed = create_stats_embed(ctx.author, initiator_stats)
     await ctx.send("Your updated stats:", embed=stats_embed)
     
     # Generate and show debate feedback
-    feedback = generate_debate_feedback(debate_info)
-    
     feedback_embed = discord.Embed(
         title="Debate Feedback",
         description="Here's some feedback to help improve your debating skills:",
@@ -584,6 +653,10 @@ async def enddebate(ctx):
         feedback_embed.add_field(name=f"Tip {i+1}", value=tip, inline=False)
         
     await ctx.send(embed=feedback_embed)
+
+    # At the end of the enddebate command, if email wasn't used, add this:
+    if not send_email_summary:
+        await ctx.send("📧 **Pro Tip**: Next time, try `!enddebate email` to get a detailed coach analysis sent to your inbox!\nRegister your email with `!email set youremail@example.com`")
 
 @bot.command(name="ping", help="Pings the bot.")
 async def ping(ctx, *, arg=None):
@@ -1331,6 +1404,143 @@ async def announce_winner(ctx, winner_id, winner_name, winning_reasons, debate_t
     )
     
     await ctx.send(win_message)
+
+# Add this command to manage email settings
+@bot.command(name="email", help="Manage your email settings for debate summaries")
+async def manage_email(ctx, action=None, email_address=None):
+    """
+    Manage email settings for debate summaries.
+    
+    Usage:
+    !email set youremail@example.com - Set your email address
+    !email get - View your current email address
+    !email remove - Remove your email address
+    !email help - Show email command help
+    """
+    # Create a direct message channel with the user
+    if ctx.guild is not None:  # If command was used in a server
+        await ctx.send(f"{ctx.author.mention}, I'll send you information about email settings in a direct message for privacy.")
+        
+    try:
+        # Get the user's DM channel
+        dm_channel = await ctx.author.create_dm()
+        
+        if action is None or action.lower() == "help":
+            # Help information
+            embed = discord.Embed(
+                title="Email Settings Help",
+                description="Manage your email address for receiving debate summaries",
+                color=discord.Color.blue()
+            )
+            
+            embed.add_field(
+                name="Set Email Address",
+                value="`!email set youremail@example.com`\nRegisters your email to receive debate summaries",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="View Current Email",
+                value="`!email get`\nShows your currently registered email address",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="Remove Email",
+                value="`!email remove`\nRemoves your email address from our records",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="Privacy Note",
+                value="Your email is stored securely and used only for sending debate summaries when requested. It will never be shared with third parties.",
+                inline=False
+            )
+            
+            await dm_channel.send(embed=embed)
+            return
+            
+        elif action.lower() == "set":
+            if not email_address:
+                await dm_channel.send("Please provide an email address. Usage: `!email set youremail@example.com`")
+                return
+                
+            # Validate email format
+            email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+            if not re.match(email_pattern, email_address):
+                await dm_channel.send("Invalid email format. Please provide a valid email address.")
+                return
+                
+            # Set the email in the email manager
+            debate_agent.email_manager.set_user_email(ctx.author.id, email_address)
+            await dm_channel.send(f"✅ Your email address has been set to `{email_address}`.\n\nYou'll now have the option to receive debate summaries via email after your debates.")
+            
+        elif action.lower() == "get":
+            # Get the current email
+            current_email = debate_agent.email_manager.get_user_email(ctx.author.id)
+            if current_email:
+                await dm_channel.send(f"Your currently registered email address is: `{current_email}`")
+            else:
+                await dm_channel.send("You don't have an email address registered. Use `!email set youremail@example.com` to set one.")
+                
+        elif action.lower() == "remove":
+            # Remove the email
+            if debate_agent.email_manager.remove_user_email(ctx.author.id):
+                await dm_channel.send("✅ Your email address has been removed from our records.")
+            else:
+                await dm_channel.send("You don't have an email address registered.")
+                
+        else:
+            await dm_channel.send("Unknown action. Use `!email help` to see available commands.")
+            
+    except discord.Forbidden:
+        await ctx.send("I couldn't send you a direct message. Please check your privacy settings and try again.")
+
+@bot.command(name="emailhelp", help="Get help with the email summary feature")
+async def email_help(ctx):
+    """Provides detailed help about the email summary feature."""
+    embed = discord.Embed(
+        title="Email Summary Feature",
+        description="Get personalized debate summaries and coach feedback delivered to your inbox",
+        color=discord.Color.blue()
+    )
+    
+    embed.add_field(
+        name="Setting Up",
+        value="1. Register your email with `!email set youremail@example.com`\n"
+              "2. Your email is stored securely and used only for sending summaries",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="Getting Summaries",
+        value="• End a debate with `!enddebate email` to send a summary\n"
+              "• Only the debate initiator can request email summaries\n"
+              "• Participants who've registered emails will also receive summaries",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="Summary Contents",
+        value="• Detailed debate statistics\n"
+              "• Personalized coach feedback\n"
+              "• Argument analysis\n"
+              "• Practice suggestions for improvement\n"
+              "• Summary of your performance in key areas",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="Managing Your Email",
+        value="• View current email: `!email get`\n"
+              "• Remove your email: `!email remove`\n"
+              "• Get help: `!email help`",
+        inline=False
+    )
+    
+    embed.set_footer(text="Your privacy matters - emails are only sent when you request them")
+    
+    await ctx.send(embed=embed)
 
 # Start the bot, connecting it to the gateway
 bot.run(token)
