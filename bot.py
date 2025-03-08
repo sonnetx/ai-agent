@@ -5,6 +5,7 @@ import asyncio
 import datetime
 import json
 import random
+from collections import defaultdict
 
 from discord.ext import commands
 from dotenv import load_dotenv
@@ -35,7 +36,9 @@ print(f"Token length: {len(token) if token else 0}")
 CHANNEL_ID = int(os.getenv("CHANNEL_ID", "123456789012345678"))
 
 # Track active debates
-active_debates = {}
+active_debates = {}  # Maps initiator_id -> debate_info
+debate_participants = defaultdict(set)  # Maps debate_id -> set of participant user IDs
+user_current_debate = {}  # Maps user_id -> debate_id they're participating in
 stats_tracker = DebateStatsTracker()
 
 # Add this class near the top of your bot.py file, after the imports
@@ -123,19 +126,36 @@ async def on_message(message: discord.Message):
     if message.author.bot or message.content.startswith("!"):
         return
 
-    # Check if user is in an active debate
-    if message.author.id in active_debates:
+    # First check if user is a direct initiator of a debate
+    is_initiator = message.author.id in active_debates
+    
+    # Then check if user is a participant in any debate
+    is_participant = message.author.id in user_current_debate
+    
+    # Process the message if user is in any debate
+    if is_initiator or is_participant:
         logger.info(f"Processing debate message from {message.author}: {message.content}")
         
+        # Get the appropriate debate info
+        if is_initiator:
+            debate_info = active_debates[message.author.id]
+            participant_data = debate_info["participants"][str(message.author.id)]
+        else:
+            # Get initiator ID from the debate the user is participating in
+            debate_id = user_current_debate[message.author.id]
+            initiator_id = int(debate_id.split('-')[1])
+            debate_info = active_debates[initiator_id]
+            participant_data = debate_info["participants"][str(message.author.id)]
+        
         # Update message count and award points for each message
-        debate_info = active_debates[message.author.id]
-        debate_info["messages_count"] += 1
+        participant_data["messages_count"] += 1
+        debate_info["messages_count"] = sum(p["messages_count"] for p in debate_info["participants"].values())
         
         # Track total characters for averaging later
         message_length = len(message.content)
-        if "total_chars" not in debate_info:
-            debate_info["total_chars"] = 0
-        debate_info["total_chars"] += message_length
+        if "total_chars" not in participant_data:
+            participant_data["total_chars"] = 0
+        participant_data["total_chars"] += message_length
         
         # Award points based on message quality (length)
         if message_length > 300:
@@ -147,7 +167,7 @@ async def on_message(message: discord.Message):
         else:
             quality_points = 0
             
-        debate_info["points_accumulated"] += quality_points
+        participant_data["points_accumulated"] += quality_points
         
         # Reinforce the historical figure persona if one is being used
         debate_agent.reinforce_persona(message.author.id)
@@ -159,7 +179,7 @@ async def on_message(message: discord.Message):
         
         # Award bonus points for accurate claims
         if fact_check and "✅" in fact_check:
-            debate_info["points_accumulated"] += 2
+            participant_data["points_accumulated"] += 2
             fact_check += "\n*+2 points awarded for accurate claims!*"
         
         # Send the response
@@ -331,94 +351,154 @@ async def debate(ctx, arg1=None, arg2=None, *, topic=None):
                    f"• Present evidence to support your arguments\n" +
                    f"• Address my key points directly")
     
+    # Create a unique debate ID
+    debate_id = f"debate-{ctx.author.id}"
+    
     # Mark user as in an active debate
-    active_debates[user_id] = {
+    active_debates[ctx.author.id] = {
         "article": top_article,
         "start_time": datetime.datetime.now(),
         "level": level,
         "points_accumulated": 0,
-        "messages_count": 0
+        "messages_count": 0,
+        "channel_id": ctx.channel.id,  # Record the channel where the debate is happening
+        "participants": {
+            str(ctx.author.id): {
+                "messages_count": 0, 
+                "total_chars": 0,
+                "points_accumulated": 0,
+                "join_time": datetime.datetime.now()
+            }
+        }
     }
+    
+    # Add initiator to the debate participants
+    debate_participants[debate_id] = {ctx.author.id}
+    user_current_debate[ctx.author.id] = debate_id
+    
+    # Send information about joining the debate
+    await ctx.send("\n\n👥 **Others can join this debate by typing `!join @" + ctx.author.name + "`**")
 
 @bot.command(name="enddebate", help="End your current debate session.")
 async def enddebate(ctx):
-    """End the current debate session and award points."""
+    """End the current debate session and award points to all participants."""
     user_id = ctx.author.id
     
-    if user_id in active_debates:
-        debate_info = active_debates[user_id]
-        
-        # Reset agent's persona for this user
-        debate_agent.reset_persona(user_id)
-        
-        # Calculate debate duration and points
-        start_time = debate_info["start_time"]
-        duration = (datetime.datetime.now() - start_time).total_seconds()
-        
-        # Get difficulty multiplier
-        level = debate_info["level"]
-        level_info = debate_agent.get_debate_level_description(user_id)
-        
-        # Award points and update stats
-        result = stats_tracker.complete_debate(user_id, int(duration))
-        points_earned = result["points_earned"]
-        adjusted_points = int(points_earned * level_info['point_multiplier'])
-        
-        # Add bonus points based on message count
-        message_count = debate_info["messages_count"]
-        message_bonus = min(10, message_count)  # Cap at 10 bonus points
-        total_points = adjusted_points + message_bonus
-        
-        # Update final stats
-        stats = stats_tracker.add_points(user_id, total_points)
-        
-        # Create an embed for the debate summary
-        embed = discord.Embed(
-            title="Debate Completed!",
-            description=f"You've earned {total_points} points from this debate.",
-            color=discord.Color.gold()
-        )
-        
-        embed.add_field(name="Base Points", value=f"{points_earned} pts", inline=True)
-        embed.add_field(name="Level", value=f"{level_info['name']} (x{level_info['point_multiplier']} points)", inline=True)
-        embed.add_field(name="Message Bonus", value=f"+{message_bonus} pts", inline=True)
-        embed.add_field(name="Debate Duration", value=f"{int(duration // 60)} minutes", inline=True)
-        embed.add_field(name="Messages Sent", value=str(message_count), inline=True)
-        
-        # Check for level ups
-        old_level = (stats["points"] - total_points) // 100 + 1
-        new_level = stats["level"]
-        if new_level > old_level:
-            embed.add_field(name="LEVEL UP!", value=f"You are now level {new_level}!", inline=False)
-        
-        # Check for new achievements
-        new_achievements = stats_tracker._check_achievements(user_id, stats)
-        if new_achievements:
-            embed.add_field(name="New Achievements!", value="\n".join([f"• {ach}" for ach in new_achievements]), inline=False)
-        
-        await ctx.send(embed=embed)
-        
-        # Show overall stats
-        stats_embed = create_stats_embed(ctx.author, stats)
-        await ctx.send("Your updated stats:", embed=stats_embed)
-        
-        # Generate and show debate feedback
-        feedback = generate_debate_feedback(debate_info)
-        
-        feedback_embed = discord.Embed(
-            title="Debate Feedback",
-            description="Here's some feedback to help improve your debating skills:",
-            color=discord.Color.purple()
-        )
-        
-        for i, tip in enumerate(feedback):
-            feedback_embed.add_field(name=f"Tip {i+1}", value=tip, inline=False)
+    # Only the initiator can end the debate
+    if user_id not in active_debates:
+        # Check if they're a participant trying to end someone else's debate
+        if user_id in user_current_debate:
+            debate_id = user_current_debate[user_id]
+            initiator_id = int(debate_id.split('-')[1])
+            initiator = await bot.fetch_user(initiator_id)
+            await ctx.send(f"Only the debate initiator ({initiator.name}) can end this debate. You can leave with `!leave`.")
+        else:
+            await ctx.send("You don't have an active debate session.")
+        return
+    
+    debate_info = active_debates[user_id]
+    debate_id = f"debate-{user_id}"
+    
+    # Get all participants
+    all_participants = list(debate_participants.get(debate_id, {user_id}))
+    
+    # Create an aggregate summary embed
+    summary_embed = discord.Embed(
+        title="Debate Concluded!",
+        description=f"The debate on **{debate_info['article']['title']}** has ended.",
+        color=discord.Color.gold()
+    )
+    
+    # Reset agent's persona for each participant
+    for participant_id in all_participants:
+        debate_agent.reset_persona(participant_id)
+    
+    # Process results for each participant
+    for participant_id in all_participants:
+        try:
+            participant = await bot.fetch_user(participant_id)
+            participant_data = debate_info["participants"].get(str(participant_id), 
+                                                             {"messages_count": 0, "total_chars": 0, "points_accumulated": 0})
             
-        await ctx.send(embed=feedback_embed)
+            # Calculate debate duration for this participant
+            join_time = participant_data.get("join_time", debate_info["start_time"])
+            duration = (datetime.datetime.now() - join_time).total_seconds()
+            
+            # Skip participants who didn't actually send any messages
+            if participant_data["messages_count"] == 0:
+                continue
+                
+            # Get difficulty multiplier
+            level = debate_info["level"]
+            level_info = debate_agent.get_debate_level_description(participant_id)
+            
+            # Award points and update stats
+            result = stats_tracker.complete_debate(participant_id, int(duration))
+            points_earned = result["points_earned"]
+            adjusted_points = int(points_earned * level_info['point_multiplier'])
+            
+            # Add bonus points based on message count
+            message_count = participant_data["messages_count"]
+            message_bonus = min(10, message_count)  # Cap at 10 bonus points
+            total_points = adjusted_points + message_bonus
+            
+            # Add any accumulated points from fact checking, etc.
+            total_points += participant_data.get("points_accumulated", 0)
+            
+            # Update final stats
+            stats = stats_tracker.add_points(participant_id, total_points)
+            
+            # Add participant results to summary
+            summary_embed.add_field(
+                name=f"{participant.name}'s Results",
+                value=f"• **Points Earned**: {total_points}\n"
+                      f"• **Messages**: {message_count}\n"
+                      f"• **Level**: {stats['level']}",
+                inline=True
+            )
+            
+            # Remove from participant tracking
+            if participant_id in user_current_debate:
+                del user_current_debate[participant_id]
+            
+            # If this is not the initiator, send them a direct message with their results
+            if participant_id != user_id:
+                try:
+                    stats_embed = create_stats_embed(participant, stats)
+                    await participant.send(f"The debate you were participating in has ended. You earned {total_points} points!", embed=stats_embed)
+                except discord.errors.Forbidden:
+                    # Can't DM this user
+                    pass
+                
+        except Exception as e:
+            logger.error(f"Error processing debate results for user {participant_id}: {e}")
+    
+    # Clean up debate tracking
+    if debate_id in debate_participants:
+        del debate_participants[debate_id]
+    del active_debates[user_id]
+    
+    # Send the summary
+    await ctx.send("Debate has concluded! Here are the results for all participants:", embed=summary_embed)
+    
+    # Show initiator's stats
+    initiator_stats = stats_tracker.get_user_stats(user_id)
+    stats_embed = create_stats_embed(ctx.author, initiator_stats)
+    await ctx.send("Your updated stats:", embed=stats_embed)
+    
+    # Generate and show debate feedback
+    feedback = generate_debate_feedback(debate_info)
+    
+    feedback_embed = discord.Embed(
+        title="Debate Feedback",
+        description="Here's some feedback to help improve your debating skills:",
+        color=discord.Color.purple()
+    )
+    
+    for i, tip in enumerate(feedback):
+        feedback_embed.add_field(name=f"Tip {i+1}", value=tip, inline=False)
         
-        del active_debates[user_id]
-    else:
-        await ctx.send("You don't have an active debate session.")
+    await ctx.send(embed=feedback_embed)
 
 @bot.command(name="ping", help="Pings the bot.")
 async def ping(ctx, *, arg=None):
@@ -779,6 +859,186 @@ async def explain_levels(ctx):
     
     await ctx.send(embed=embed)
 
+@bot.command(name="join", help="Join an ongoing debate")
+async def join_debate(ctx, initiator: discord.Member = None):
+    """Join an ongoing debate started by another user."""
+    user_id = ctx.author.id
+    
+    # Check if user is already in a debate
+    if user_id in user_current_debate:
+        await ctx.send("You're already in an active debate! Type `!leave` to leave it first.")
+        return
+    
+    # If no initiator specified, try to find an active debate in the channel
+    if not initiator:
+        # Look for active debates in the current channel
+        channel_debates = []
+        for init_id, debate_info in active_debates.items():
+            if "channel_id" in debate_info and debate_info["channel_id"] == ctx.channel.id:
+                channel_debates.append((init_id, debate_info))
+        
+        if not channel_debates:
+            await ctx.send("No active debates found in this channel. Start one with `!debate [topic]` or specify a user to join their debate.")
+            return
+        
+        # If only one debate in channel, join that one
+        if len(channel_debates) == 1:
+            initiator_id = channel_debates[0][0]
+            debate_info = channel_debates[0][1]
+        else:
+            # If multiple debates, ask which one to join
+            debate_list = "\n".join([f"{i+1}. {bot.get_user(init_id).name}'s debate on: {debate_info['article']['title']}" 
+                                   for i, (init_id, debate_info) in enumerate(channel_debates)])
+            await ctx.send(f"Multiple debates found in this channel. Please specify which user's debate to join:\n{debate_list}")
+            return
+    else:
+        # User specified an initiator to join
+        initiator_id = initiator.id
+        if initiator_id not in active_debates:
+            await ctx.send(f"{initiator.name} doesn't have an active debate. Start your own with `!debate [topic]`.")
+            return
+        
+        debate_info = active_debates[initiator_id]
+    
+    # Add user to the debate
+    debate_id = f"debate-{initiator_id}"
+    debate_participants[debate_id].add(user_id)
+    user_current_debate[user_id] = debate_id
+    
+    # Initialize stats for this participant
+    if "participants" not in debate_info:
+        debate_info["participants"] = {}
+    
+    debate_info["participants"][str(user_id)] = {
+        "messages_count": 0,
+        "total_chars": 0,
+        "points_accumulated": 0,
+        "join_time": datetime.datetime.now()
+    }
+    
+    # Get debate information for welcome message
+    article_title = debate_info["article"]["title"]
+    
+    # Notify everyone
+    await ctx.send(f"📢 {ctx.author.mention} has joined the debate on **{article_title}**! They can now participate in the discussion.")
+    
+    # Send the user a brief summary of the current debate
+    summary_embed = discord.Embed(
+        title="Debate Summary",
+        description=f"You've joined a debate about: {article_title}",
+        color=discord.Color.green()
+    )
+    
+    summary_embed.add_field(
+        name="Debate Level", 
+        value=f"{debate_info['level'].capitalize()} difficulty", 
+        inline=True
+    )
+    
+    initiator_name = bot.get_user(initiator_id).name
+    summary_embed.add_field(
+        name="Initiator", 
+        value=initiator_name, 
+        inline=True
+    )
+    
+    participant_count = len(debate_participants[debate_id])
+    summary_embed.add_field(
+        name="Participants", 
+        value=f"{participant_count} debaters", 
+        inline=True
+    )
+    
+    await ctx.send(embed=summary_embed)
+
+@bot.command(name="leave", help="Leave the current debate you're participating in")
+async def leave_debate(ctx):
+    """Leave a debate you've joined."""
+    user_id = ctx.author.id
+    
+    # Check if user is in a debate
+    if user_id not in user_current_debate:
+        await ctx.send("You're not currently in any debate.")
+        return
+    
+    debate_id = user_current_debate[user_id]
+    
+    # Remove user from debate tracking
+    debate_participants[debate_id].remove(user_id)
+    del user_current_debate[user_id]
+    
+    # If this is an empty set now, clean it up
+    if not debate_participants[debate_id]:
+        del debate_participants[debate_id]
+    
+    # Find initiator's debate info and clean up participant data if needed
+    initiator_id = int(debate_id.split('-')[1])
+    if initiator_id in active_debates:
+        debate_info = active_debates[initiator_id]
+        if "participants" in debate_info and str(user_id) in debate_info["participants"]:
+            # Calculate partial points based on participation time
+            participant_data = debate_info["participants"][str(user_id)]
+            join_time = participant_data["join_time"]
+            duration = (datetime.datetime.now() - join_time).total_seconds()
+            
+            # Award partial points (could be scaled down since they left early)
+            message_count = participant_data["messages_count"]
+            if message_count > 0:  # Only award points if they participated
+                # Get level multiplier
+                level = debate_info["level"]
+                level_info = debate_agent.get_debate_level_description(user_id)
+                point_multiplier = level_info["point_multiplier"]
+                
+                # Calculate points - scale based on time spent (max 15 points for leaving early)
+                base_points = min(int(duration // 60), 15)
+                message_bonus = min(5, message_count)  # Cap at 5 bonus points for leavers
+                total_points = int((base_points + message_bonus) * point_multiplier)
+                
+                # Add points to user stats
+                stats_tracker.add_points(user_id, total_points)
+                
+                # Notify about points earned
+                await ctx.send(f"You've earned {total_points} points for your partial participation in the debate.")
+            
+            # Remove participant data
+            del debate_info["participants"][str(user_id)]
+    
+    await ctx.send(f"{ctx.author.mention} has left the debate.")
+
+@bot.command(name="debates", help="List active debates you can join")
+async def list_debates(ctx):
+    """List all active debates that users can join."""
+    if not active_debates:
+        await ctx.send("There are no active debates currently. Start one with `!debate [topic]`!")
+        return
+    
+    embed = discord.Embed(
+        title="Active Debates",
+        description="Here are the ongoing debates you can join:",
+        color=discord.Color.blue()
+    )
+    
+    for initiator_id, debate_info in active_debates.items():
+        try:
+            initiator = await bot.fetch_user(initiator_id)
+            debate_id = f"debate-{initiator_id}"
+            participant_count = len(debate_participants.get(debate_id, set()))
+            channel = bot.get_channel(debate_info.get("channel_id", 0))
+            channel_name = channel.name if channel else "Unknown channel"
+            
+            embed.add_field(
+                name=f"{initiator.name}'s Debate ({participant_count} participants)",
+                value=f"**Topic**: {debate_info['article']['title']}\n"
+                      f"**Level**: {debate_info['level'].capitalize()}\n"
+                      f"**Channel**: {channel_name}\n"
+                      f"**Join**: `!join @{initiator.name}`",
+                inline=False
+            )
+        except Exception as e:
+            logger.error(f"Error adding debate to list: {e}")
+    
+    await ctx.send(embed=embed)
+
 # Add this helper function after the FakeMessage class
 def create_stats_embed(user, stats):
     """Creates an embed to display a user's debate stats."""
@@ -854,13 +1114,6 @@ def generate_debate_feedback(debate_info):
     
     # Add 2 random tips
     feedback.extend(random.sample(debate_tips, 2))
-    
-    # Add historical figure feedback if applicable
-    if debate_agent.current_figure:
-        figure_name = debate_agent.current_figure["name"]
-        feedback.append(f"You debated against {figure_name}. Consider researching more about their historical positions and rhetorical style to better counter their arguments next time.")
-        
-    return feedback
 
 # Start the bot, connecting it to the gateway
 bot.run(token)
