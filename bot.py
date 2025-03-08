@@ -1199,6 +1199,14 @@ def generate_debate_feedback(debate_info):
     
     # Add 2 random tips
     feedback.extend(random.sample(debate_tips, 2))
+    
+    # Add historical figure feedback if applicable
+    if debate_info.get("figure"):
+        figure_name = debate_info["figure"].get("name", "the historical figure")
+        feedback.append(f"You debated against {figure_name}. Consider researching more about their historical positions and rhetorical style to better counter their arguments next time.")
+    
+    # Return the feedback list
+    return feedback
 
 # Add this new function to determine the debate winner
 def determine_debate_winner(debate_info, participants):
