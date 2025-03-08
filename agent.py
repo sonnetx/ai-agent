@@ -398,24 +398,43 @@ class MistralAgent:
     def __init__(self):
         MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
         self.client = Mistral(api_key=MISTRAL_API_KEY)
-        self.conversation_history = [
-            {"role": "system", "content": SYSTEM_PROMPT}
-        ]
+        # Replace single conversation history with a dictionary keyed by user ID
+        self.user_conversations = {}
         self.fact_checker = FactChecker()
         self.historical_figures = HistoricalFigures()
-        self.current_figure = None
-        self.debate_level = "intermediate"  # Default debate level
+        # Replace single current_figure with a dictionary keyed by user ID
+        self.user_figures = {}
+        # Replace single debate_level with a dictionary keyed by user ID
+        self.user_debate_levels = {}
     
-    def set_debate_level(self, level):
-        """Set the unified debate level (combines difficulty and complexity)"""
+    def _get_user_conversation(self, user_id):
+        """Get conversation history for a specific user, creating it if needed"""
+        if user_id not in self.user_conversations:
+            self.user_conversations[user_id] = [
+                {"role": "system", "content": SYSTEM_PROMPT}
+            ]
+        return self.user_conversations[user_id]
+    
+    def _get_user_figure(self, user_id):
+        """Get current figure for a specific user"""
+        return self.user_figures.get(user_id)
+    
+    def _get_user_debate_level(self, user_id):
+        """Get debate level for a specific user, defaulting to 'intermediate'"""
+        return self.user_debate_levels.get(user_id, "intermediate")
+    
+    def set_debate_level(self, level, user_id):
+        """Set the unified debate level for a specific user"""
         valid_levels = ["beginner", "intermediate", "advanced"]
         if level.lower() in valid_levels:
-            self.debate_level = level.lower()
+            self.user_debate_levels[user_id] = level.lower()
             return True
         return False
     
-    def get_debate_level_description(self):
-        """Get a description of the current debate level"""
+    def get_debate_level_description(self, user_id=None):
+        """Get a description of the current debate level for a user"""
+        level = self.user_debate_levels.get(user_id, "intermediate") if user_id else "intermediate"
+        
         descriptions = {
             "beginner": {
                 "name": "Beginner",
@@ -454,10 +473,12 @@ class MistralAgent:
                 ]
             }
         }
-        return descriptions.get(self.debate_level, descriptions["intermediate"])
+        return descriptions.get(level, descriptions["intermediate"])
     
-    def _get_level_instructions(self):
-        """Get system instructions for the current debate level"""
+    def _get_level_instructions(self, user_id):
+        """Get system instructions for a user's current debate level"""
+        level = self._get_user_debate_level(user_id)
+        
         instructions = {
             "beginner": """
 DEBATE LEVEL: BEGINNER
@@ -487,31 +508,34 @@ DEBATE LEVEL: ADVANCED
 - Use abstract reasoning and hypothetical scenarios to strengthen your position
 """
         }
-        return instructions.get(self.debate_level, instructions["intermediate"])
+        return instructions.get(level, instructions["intermediate"])
     
-    def set_historical_figure(self, figure_id):
-        """Set the bot to speak as a historical figure"""
+    def set_historical_figure(self, figure_id, user_id):
+        """Set the bot to speak as a historical figure for a specific user"""
         figure = self.historical_figures.get_figure_details(figure_id)
         if figure:
             # Update the system prompt with the historical figure's instructions
             new_prompt = self.historical_figures.get_prompt_for_figure(figure_id)
-            # Reset conversation with new prompt
-            self.conversation_history = [
+            # Reset this user's conversation with new prompt
+            self.user_conversations[user_id] = [
                 {"role": "system", "content": new_prompt}
             ]
-            self.current_figure = figure
+            self.user_figures[user_id] = figure
             return True
         return False
     
-    def reset_persona(self):
-        """Reset to default debate persona"""
-        self.conversation_history = [
+    def reset_persona(self, user_id):
+        """Reset to default debate persona for a specific user"""
+        self.user_conversations[user_id] = [
             {"role": "system", "content": SYSTEM_PROMPT}
         ]
-        self.current_figure = None
+        if user_id in self.user_figures:
+            del self.user_figures[user_id]
     
     async def fact_check_and_respond(self, message: discord.Message):
         """Check facts in user message, then respond with debate points"""
+        user_id = message.author.id
+        
         # Extract claims from the user's message
         claims = self.fact_checker.extract_claims(message.content)
         fact_check_results = []
@@ -527,18 +551,22 @@ DEBATE LEVEL: ADVANCED
                         "explanation": result["explanation"]
                     })
         
+        # Get user's conversation history
+        conversation = self._get_user_conversation(user_id)
+        
         # Add the user message to conversation history
-        self.conversation_history.append({"role": "user", "content": message.content})
+        conversation.append({"role": "user", "content": message.content})
         
         # If we have fact check results, add them as a system message
         if fact_check_results:
             # Check if we're debating as a historical figure
             persona_reminder = ""
-            if self.current_figure:
-                persona_reminder = f"IMPORTANT: You are speaking as {self.current_figure['name']}. Maintain this historical figure's voice, style, and perspective completely while addressing these claims."
+            user_figure = self._get_user_figure(user_id)
+            if user_figure:
+                persona_reminder = f"IMPORTANT: You are speaking as {user_figure['name']}. Maintain this historical figure's voice, style, and perspective completely while addressing these claims."
             
             # Add complexity reminder
-            complexity_reminder = self._get_level_instructions()
+            complexity_reminder = self._get_level_instructions(user_id)
             
             system_msg = f"{persona_reminder}\n{complexity_reminder}\nThe user made some factual claims. Here are the fact check results you should consider in your response:\n"
             for i, check in enumerate(fact_check_results, 1):
@@ -547,19 +575,19 @@ DEBATE LEVEL: ADVANCED
                 system_msg += f"Address this claim in a way that's consistent with your character's worldview and knowledge. " \
                               f"If the claim is False or Partly True, challenge it. If True, you may still interpret it through your historical lens.\n\n"
             
-            self.conversation_history.append({"role": "system", "content": system_msg})
+            conversation.append({"role": "system", "content": system_msg})
         
         # Get response from Mistral
         response = await self.client.chat.complete_async(
             model=MISTRAL_MODEL,
-            messages=self.conversation_history,
+            messages=conversation,
         )
         
         # Extract the assistant's message
         assistant_message = response.choices[0].message
         
         # Add the assistant's response to conversation history
-        self.conversation_history.append({"role": "assistant", "content": assistant_message.content})
+        conversation.append({"role": "assistant", "content": assistant_message.content})
         
         # If we have fact check results, prepare them for display
         fact_check_display = ""
@@ -583,39 +611,42 @@ DEBATE LEVEL: ADVANCED
             return result["response"] + "\n" + result["fact_check"]
         return result["response"]
 
-    def reinforce_persona(self):
+    def reinforce_persona(self, user_id):
         """
         Reinforce the historical figure's persona during long debates
-        to prevent character drift
+        to prevent character drift for a specific user
         """
-        if not self.current_figure:
+        if user_id not in self.user_figures:
             return  # No persona to reinforce
         
+        user_figure = self.user_figures[user_id]
+        conversation = self._get_user_conversation(user_id)
+        
         # Check if we have enough conversation history to need reinforcement
-        if len(self.conversation_history) >= 6:  # After a few exchanges
+        if len(conversation) >= 6:  # After a few exchanges
             # Add a reminder to stay in character
             reminder = {
                 "role": "system", 
-                "content": f"IMPORTANT REMINDER: You are {self.current_figure['name']}. Continue to speak authentically as this historical figure would, using their characteristic language, rhetorical style, and expressing their worldview. Maintain this persona completely in your next response."
+                "content": f"IMPORTANT REMINDER: You are {user_figure['name']}. Continue to speak authentically as this historical figure would, using their characteristic language, rhetorical style, and expressing their worldview. Maintain this persona completely in your next response."
             }
             
             # Insert the reminder before the most recent user message
-            self.conversation_history.insert(-1, reminder)
+            conversation.insert(-1, reminder)
             
             # Keep conversation history from growing too large
-            if len(self.conversation_history) > 10:
+            if len(conversation) > 10:
                 # Keep the system prompts, plus the 4 most recent messages
-                system_prompts = [msg for msg in self.conversation_history if msg["role"] == "system"]
-                recent_messages = self.conversation_history[-4:]
+                system_prompts = [msg for msg in conversation if msg["role"] == "system"]
+                recent_messages = conversation[-4:]
                 
                 # Reconstruct conversation with system prompts and recent messages
-                self.conversation_history = []
+                self.user_conversations[user_id] = []
                 # First add the initial system prompt (the persona)
-                self.conversation_history.append(system_prompts[0])
+                self.user_conversations[user_id].append(system_prompts[0])
                 # Then add the personality reminder
-                self.conversation_history.append(reminder)
+                self.user_conversations[user_id].append(reminder)
                 # Then add recent messages
-                self.conversation_history.extend(recent_messages)
+                self.user_conversations[user_id].extend(recent_messages)
 
 class DebateStatsTracker:
     def __init__(self, file_path="debate_stats.json"):

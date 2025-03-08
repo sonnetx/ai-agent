@@ -150,7 +150,7 @@ async def on_message(message: discord.Message):
         debate_info["points_accumulated"] += quality_points
         
         # Reinforce the historical figure persona if one is being used
-        debate_agent.reinforce_persona()
+        debate_agent.reinforce_persona(message.author.id)
         
         # Use the enhanced fact-checking response method
         response_data = await debate_agent.fact_check_and_respond(message)
@@ -236,18 +236,18 @@ async def debate(ctx, arg1=None, arg2=None, *, topic=None):
             else:
                 topic = arg2
     
-    # Set the debate level
-    debate_agent.set_debate_level(level)
-    level_info = debate_agent.get_debate_level_description()
+    # Set the debate level for this specific user
+    debate_agent.set_debate_level(level, ctx.author.id)
+    level_info = debate_agent.get_debate_level_description(ctx.author.id)
     
-    # Set historical figure if specified
+    # Set historical figure for this specific user if specified
     figure_desc = ""
     if figure:
         figure_details = debate_agent.historical_figures.get_figure_details(figure)
-        debate_agent.set_historical_figure(figure)
+        debate_agent.set_historical_figure(figure, ctx.author.id)
         figure_desc = f"**Debating as: {figure_details['name']}**\n{figure_details['description']}\n\n"
     else:
-        debate_agent.reset_persona()
+        debate_agent.reset_persona(ctx.author.id)
     
     # Display settings
     settings_embed = discord.Embed(
@@ -348,8 +348,8 @@ async def enddebate(ctx):
     if user_id in active_debates:
         debate_info = active_debates[user_id]
         
-        # Reset agent's persona
-        debate_agent.reset_persona()
+        # Reset agent's persona for this user
+        debate_agent.reset_persona(user_id)
         
         # Calculate debate duration and points
         start_time = debate_info["start_time"]
@@ -357,7 +357,7 @@ async def enddebate(ctx):
         
         # Get difficulty multiplier
         level = debate_info["level"]
-        level_info = debate_agent.get_debate_level_description()
+        level_info = debate_agent.get_debate_level_description(user_id)
         
         # Award points and update stats
         result = stats_tracker.complete_debate(user_id, int(duration))
