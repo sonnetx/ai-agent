@@ -398,22 +398,88 @@ async def enddebate(ctx):
     
     debate_info = active_debates[user_id]
     debate_id = f"debate-{user_id}"
+    debate_topic = debate_info["article"]["title"]
     
     # Get all participants
     all_participants = list(debate_participants.get(debate_id, {user_id}))
     
-    # Create an aggregate summary embed
+    # Determine the winner
+    winner_id, total_scores, category_scores, winning_reasons = determine_debate_winner(debate_info, all_participants)
+    
+    # Get winner name
+    if winner_id == "bot":
+        winner_name = "EchoBreaker AI"
+    else:
+        try:
+            winner_user = await bot.fetch_user(int(winner_id))
+            winner_name = winner_user.name
+        except:
+            winner_name = "Unknown Debater"
+    
+    # Announce the winner dramatically
+    await announce_winner(ctx, winner_id, winner_name, winning_reasons, debate_topic)
+    
+    # Create an aggregate summary embed with scores
     summary_embed = discord.Embed(
-        title="Debate Concluded!",
-        description=f"The debate on **{debate_info['article']['title']}** has ended.",
+        title="Debate Results",
+        description=f"The debate on **{debate_topic}** has concluded.",
         color=discord.Color.gold()
     )
+    
+    # Add a scoreboard section
+    scoreboard = ""
+    sorted_scores = sorted([(pid, score) for pid, score in total_scores.items()], key=lambda x: x[1], reverse=True)
+    
+    for i, (pid, score) in enumerate(sorted_scores, 1):
+        if pid == "bot":
+            name = "EchoBreaker AI"
+        else:
+            try:
+                user = await bot.fetch_user(int(pid))
+                name = user.name
+            except:
+                name = f"User {pid}"
+        
+        # Add crown for the winner
+        prefix = "👑 " if pid == winner_id else ""
+        scoreboard += f"{i}. {prefix}**{name}**: {score:.1f} points\n"
+    
+    summary_embed.add_field(name="Scoreboard", value=scoreboard, inline=False)
+    
+    # Add a field for judge's notes
+    judges_notes = []
+    for category, description in {"engagement": "Engagement", "depth": "Depth", "insight": "Insight", 
+                                  "evidence": "Evidence", "rhetoric": "Rhetoric", "audience": "Audience Impact"}.items():
+        # Find who scored highest in this category
+        best_pid = max(category_scores.keys(), key=lambda pid: category_scores[pid].get(category, 0))
+        best_score = category_scores[best_pid].get(category, 0)
+        
+        if best_pid == "bot":
+            best_name = "EchoBreaker AI"
+        else:
+            try:
+                best_user = await bot.fetch_user(int(best_pid))
+                best_name = best_user.name
+            except:
+                best_name = f"User {best_pid}"
+        
+        judges_notes.append(f"**{description}**: {best_name} ({best_score:.1f}/10)")
+    
+    summary_embed.add_field(name="Judge's Notes", value="\n".join(judges_notes), inline=False)
     
     # Reset agent's persona for each participant
     for participant_id in all_participants:
         debate_agent.reset_persona(participant_id)
     
+    # Award bonus points to the winner (if a human won)
+    winner_bonus = 0
+    if winner_id != "bot":
+        winner_bonus = 20  # Bonus points for winning
+        # Add note about the winner bonus
+        summary_embed.add_field(name="Winner Bonus", value=f"**{winner_name}** earned a **+{winner_bonus} point** victory bonus!", inline=False)
+    
     # Process results for each participant
+    participant_results = []
     for participant_id in all_participants:
         try:
             participant = await bot.fetch_user(participant_id)
@@ -445,17 +511,22 @@ async def enddebate(ctx):
             # Add any accumulated points from fact checking, etc.
             total_points += participant_data.get("points_accumulated", 0)
             
+            # Add winner bonus if applicable
+            if str(participant_id) == winner_id:
+                total_points += winner_bonus
+            
             # Update final stats
             stats = stats_tracker.add_points(participant_id, total_points)
             
             # Add participant results to summary
-            summary_embed.add_field(
-                name=f"{participant.name}'s Results",
-                value=f"• **Points Earned**: {total_points}\n"
-                      f"• **Messages**: {message_count}\n"
-                      f"• **Level**: {stats['level']}",
-                inline=True
-            )
+            participant_results.append({
+                "name": participant.name,
+                "points": total_points,
+                "messages": message_count,
+                "level": stats['level'],
+                "id": participant_id,
+                "stats": stats
+            })
             
             # Remove from participant tracking
             if participant_id in user_current_debate:
@@ -465,7 +536,11 @@ async def enddebate(ctx):
             if participant_id != user_id:
                 try:
                     stats_embed = create_stats_embed(participant, stats)
-                    await participant.send(f"The debate you were participating in has ended. You earned {total_points} points!", embed=stats_embed)
+                    # Mention if they won in the DM
+                    if str(participant_id) == winner_id:
+                        await participant.send(f"🏆 Congratulations! You WON the debate and earned {total_points} points (including {winner_bonus} bonus points)!", embed=stats_embed)
+                    else:
+                        await participant.send(f"The debate you were participating in has ended. You earned {total_points} points!", embed=stats_embed)
                 except discord.errors.Forbidden:
                     # Can't DM this user
                     pass
@@ -473,13 +548,23 @@ async def enddebate(ctx):
         except Exception as e:
             logger.error(f"Error processing debate results for user {participant_id}: {e}")
     
+    # Add participant results to summary embed
+    for result in participant_results:
+        summary_embed.add_field(
+            name=f"{result['name']}'s Results",
+            value=f"• **Points Earned**: {result['points']}\n"
+                  f"• **Messages**: {result['messages']}\n"
+                  f"• **Level**: {result['level']}",
+            inline=True
+        )
+    
     # Clean up debate tracking
     if debate_id in debate_participants:
         del debate_participants[debate_id]
     del active_debates[user_id]
     
     # Send the summary
-    await ctx.send("Debate has concluded! Here are the results for all participants:", embed=summary_embed)
+    await ctx.send("Full debate results:", embed=summary_embed)
     
     # Show initiator's stats
     initiator_stats = stats_tracker.get_user_stats(user_id)
@@ -1114,6 +1199,130 @@ def generate_debate_feedback(debate_info):
     
     # Add 2 random tips
     feedback.extend(random.sample(debate_tips, 2))
+
+# Add this new function to determine the debate winner
+def determine_debate_winner(debate_info, participants):
+    """
+    Determine the winner of a debate based on various metrics.
+    Returns a tuple of (winner_id, scores, winning_reasons)
+    """
+    # Track scores for each participant including the bot
+    scores = {"bot": 0}
+    for participant_id in participants:
+        scores[str(participant_id)] = 0
+    
+    # Define scoring categories
+    categories = {
+        "engagement": "Number of messages sent",
+        "depth": "Average message length",
+        "insight": "Interesting points made",
+        "evidence": "Use of facts and evidence",
+        "rhetoric": "Persuasiveness and style",
+        "audience": "Audience impact" 
+    }
+    
+    # Get participant data
+    participant_metrics = {}
+    for participant_id in participants:
+        p_id_str = str(participant_id)
+        if p_id_str in debate_info["participants"]:
+            data = debate_info["participants"][p_id_str]
+            message_count = data.get("messages_count", 0)
+            total_chars = data.get("total_chars", 0)
+            avg_length = total_chars / max(message_count, 1)
+            
+            participant_metrics[p_id_str] = {
+                "message_count": message_count,
+                "avg_length": avg_length,
+                "points_accumulated": data.get("points_accumulated", 0)
+            }
+    
+    # Category scores for each participant
+    category_scores = {p_id: {} for p_id in scores.keys()}
+    
+    # Score for engagement (message count)
+    max_messages = max([metrics.get("message_count", 0) for metrics in participant_metrics.values()] + [3])  # Minimum 3 for scaling
+    for p_id, metrics in participant_metrics.items():
+        engagement_score = min(10, (metrics["message_count"] / max_messages) * 10)
+        category_scores[p_id]["engagement"] = round(engagement_score, 1)
+        scores[p_id] += engagement_score
+    
+    # Score for depth (average message length)
+    for p_id, metrics in participant_metrics.items():
+        # Score 0-10 based on average length (0-50: 1-2, 50-100: 3-4, 100-200: 5-6, 200-300: 7-8, 300+: 9-10)
+        avg_len = metrics["avg_length"]
+        depth_score = min(10, max(1, avg_len / 40))
+        category_scores[p_id]["depth"] = round(depth_score, 1)
+        scores[p_id] += depth_score
+    
+    # Score for insight, evidence, rhetoric, audience (partially random but weighted by previous metrics)
+    for p_id in scores.keys():
+        if p_id == "bot":
+            # Bot has predetermined advantages in some categories
+            category_scores[p_id]["insight"] = random.uniform(7, 9)
+            category_scores[p_id]["evidence"] = random.uniform(7, 9.5)
+            category_scores[p_id]["rhetoric"] = random.uniform(6, 9)
+            category_scores[p_id]["audience"] = random.uniform(5, 8)
+        else:
+            # Human participants get scores influenced by their measurable metrics
+            base_quality = min(10, participant_metrics.get(p_id, {}).get("points_accumulated", 0) / 3)
+            
+            # Add some randomness to make it interesting
+            category_scores[p_id]["insight"] = round(min(10, base_quality + random.uniform(-2, 4)), 1)
+            category_scores[p_id]["evidence"] = round(min(10, base_quality + random.uniform(-1, 3)), 1)
+            category_scores[p_id]["rhetoric"] = round(min(10, base_quality + random.uniform(-2, 5)), 1)
+            category_scores[p_id]["audience"] = round(min(10, base_quality + random.uniform(-3, 6)), 1)
+        
+        # Add these scores to the total
+        for category in ["insight", "evidence", "rhetoric", "audience"]:
+            scores[p_id] += category_scores[p_id][category]
+    
+    # Determine the winner
+    winner_id = max(scores.items(), key=lambda x: x[1])[0]
+    
+    # Identify the top reasons why the winner won
+    winner_categories = category_scores[winner_id]
+    top_categories = sorted(winner_categories.items(), key=lambda x: x[1], reverse=True)[:2]
+    
+    winning_reasons = []
+    for category, score in top_categories:
+        if score > 6:  # Only mention strong categories
+            winning_reasons.append(f"impressive {categories[category].lower()}")
+    
+    if not winning_reasons:
+        winning_reasons = ["overall debate performance"]
+    
+    return winner_id, scores, category_scores, winning_reasons
+
+# Add this function for creating the animated winner announcement
+async def announce_winner(ctx, winner_id, winner_name, winning_reasons, debate_topic):
+    """Create a dramatic, animated announcement of the debate winner"""
+    
+    # Dramatic pause and drum roll
+    drum_roll = await ctx.send("🥁 The judges are tallying the scores... 🥁")
+    await asyncio.sleep(2)
+    
+    # Countdown animation
+    for i in range(3, 0, -1):
+        await drum_roll.edit(content=f"🥁 The winner will be announced in {i}... 🥁")
+        await asyncio.sleep(1)
+    
+    # Dramatic winner reveal
+    await drum_roll.edit(content="🎉 **AND THE WINNER IS...** 🎉")
+    await asyncio.sleep(1.5)
+    
+    # Trophy and winner announcement with confetti
+    trophy_emojis = ["🏆", "👑", "🎖️", "🥇", "⭐"]
+    emoji = random.choice(trophy_emojis)
+    
+    reasons_text = " and ".join(winning_reasons)
+    win_message = (
+        f"{emoji} {emoji} {emoji} **{winner_name}** {emoji} {emoji} {emoji}\n\n"
+        f"🎊 Congratulations on your victory in the debate about **{debate_topic}**! 🎊\n\n"
+        f"The judges were particularly impressed by your {reasons_text}!"
+    )
+    
+    await ctx.send(win_message)
 
 # Start the bot, connecting it to the gateway
 bot.run(token)
