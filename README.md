@@ -1,106 +1,126 @@
-# Echobreaker
+# EchoBreaker - AI Debate Bot
 
-This Discord bot delivers news updates, paired with "hot takes" from various political perspectives, and allows users to engage in a debate with an AI.
+EchoBreaker is an advanced AI debate bot for Discord that helps users sharpen their debate skills by engaging them in thoughtful political discussions on current news topics.
 
-## Features
+## 🔑 Key Features
 
-* **Customizable News Topics (Optional):**
-    * Users can specify a news topic they are interested in (e.g., "climate change," "economy," "foreign policy") using commands.
-    * Alternatively, the bot can provide general political updates.
-* **Hot Take Generation:**
-    * Each news update is accompanied by a "hot take" generated from a randomly selected political perspective (e.g., conservative, liberal, libertarian, socialist).
-* **Interactive Debate:**
-    * Users can attempt to respectfully and persuasively argue the opposite position of the generated "hot take" using commands.
-    * The AI (powered by Mistral) will evaluate the user's argument and provide feedback.
+- **AI-Powered Political Debates**: Engage in debates where the bot takes strong political positions on current news topics
+- **Historical Figure Personas**: Debate against AI simulations of historical figures like Socrates, Churchill, MLK, and more
+- **Fact-Checking**: Real-time verification of factual claims during debates using Perplexity AI
+- **Gamified Experience**: Earn points, track stats, and climb the leaderboard as you improve your debate skills
+- **Personalized Feedback**: Receive coach-like analysis of your debate performance
+- **Email Summaries**: Get detailed debate summaries and performance analysis sent to your inbox
+- **Customizable Difficulty**: Choose from beginner, intermediate, or advanced debate levels
 
-## Setting up the starter code
+## 🧠 Implementation Approach
 
-We'll be using Python, if you've got a good Python setup already, great! But make sure that it is at least Python version 3.12. If not, the easiest thing to do is to make sure you have at least 3GB free on your computer and then to head over to [miniconda install](https://docs.anaconda.com/miniconda/install/) and install the Python 3 version of Anaconda. It will work on any operating system.
+EchoBreaker leverages several powerful AI technologies:
 
-After you have installed conda, close any open terminals you might have. Then open a terminal in the same folder as your `bot.py` file. Once in, run the following command
+1. **Mistral AI**: Powers the core debate functionality, allowing the bot to take strong political positions and respond intelligently to user arguments
+2. **News API**: Fetches current news articles to serve as debate topics
+3. **Perplexity AI**: Provides real-time fact-checking of claims made during debates
+4. **Discord.py**: Enables rich interactive experiences within Discord servers
 
-## 1. Create an environment with dependencies specified in env.yml:
+The implementation follows a modular architecture:
+- `agent.py`: Contains the core AI logic, including the MistralAgent, NewsAgent, FactChecker, and other components
+- `bot.py`: Handles Discord interactions, commands, and the debate flow
 
-    conda env create -f local_env.yml
+## 🚀 Getting Started
 
-## 2. Activate the new environment:
+### Prerequisites
 
-    conda activate discord_bot
+- Python 3.8+
+- Discord Bot Token
+- Mistral AI API Key
+- News API Key
+- Perplexity API Key (for fact-checking)
+- SMTP Email credentials (optional, for email summaries)
 
-This will install the required dependencies to start the project.
+### Installation
 
-## Guide To The Starter Code
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/yourusername/echobreaker.git
+   cd echobreaker
+   ```
 
-The starter code includes two files, `bot.py` and `agent.py`. Let's take a look at what this project already does.
+2. **Create a virtual environment:**
+   ```bash
+   conda env create -f local_env.yml
+   conda activate discord_bot
+   ```
 
-To do this, run `python3 bot.py` and leave it running in your terminal. Next, go into our team’s channel `echobreaker` and try typing any message. You should see the bot respond in the same channel. The default behavior of the bot is, that any time it sees a message (from a user), it sends that message to our agent and sends back the response.
+3. **Set up environment variables:**
+   Create a `.env` file with the following:
+   ```
+   DISCORD_TOKEN=your_discord_token
+   MISTRAL_API_KEY=your_mistral_api_key
+   NEWS_API_KEY=your_news_api_key
+   PERPLEXITY_API_KEY=your_perplexity_api_key
+   CHANNEL_ID=your_discord_channel_id
+   EMAIL_SMTP_SERVER=smtp.example.com
+   EMAIL_SMTP_PORT=587
+   EMAIL_SENDER=your_email@example.com
+   EMAIL_PASSWORD=your_email_password
+   ```
 
-Let's take a deeper look into how this is done. In the `bot.py` file, scroll to the `on_message` function. This function is called every time a message is sent in your channel. Observe how `agent.run()` is called on the message content, and how the result of that message call is sent back to the user.
+4. **Run the bot:**
+   ```bash
+   python bot.py
+   ```
 
-This agent is defined in the `agent.py` file. The `run()` function creates a simple LLM call with a system message defined at the top, and the user's message passed in. The response from the LLM is then returned.
+## 💬 Usage
 
-Check out this finalized [weather agent bot](https://github.com/CS-153/weather-agent-template/blob/main/agent.py) to see a more detailed example.
+### Starting a Debate
 
-## Setup
+- `!debate [topic]` - Start a debate on a specific topic
+- `!debate` - Start a debate on a random current news topic
+- `!debate [level] [topic]` - Start a debate with a specific difficulty level
+  - Example: `!debate advanced climate change`
+- `!debate [figure] [level] [topic]` - Debate against a historical figure
+  - Example: `!debate churchill advanced democracy`
 
-1.  **Clone the repository:**
-    ```bash
-    git clone [repository URL]
-    cd [repository directory]
-    ```
-2.  **Install dependencies:**
-    * Follow the conda environment setup instructions above.
-3.  **Create a Discord bot:**
-    * Go to the Discord Developer Portal and create a new application.
-    * Create a bot user for your application.
-    * Copy the bot token.
-4.  **Configure API keys:**
-    * Obtain API keys for the News API and Mistral AI.
-    * Set the API keys and Discord bot token as environment variables or in a `.env` file within your project directory.
-5.  **Invite the bot to your server:**
-    * Use the OAuth2 URL generator in the Discord Developer Portal to generate an invite link with the "bot" scope and appropriate permissions.
-    * Paste the link into your browser and select the server to invite the bot to.
-6.  **Run the bot:**
-    ```bash
-    python bot.py
-    ```
+### Historical Figures
 
-## Usage
+- `!figures` - List available historical figures
+- `!figure [name]` - View details about a specific figure
+- `!customfigure [name]` - Create a custom historical figure to debate against
 
-* **News Updates:**
-    * `!news [topic]` : retrieves news on the specified topic. If no topic is provided, it returns general news.
-* **Debate:**
-    * After the bot provides a news update and hot take, you can reply to the bot's message with your argument. The bot will then analyze your argument and provide feedback.
+### Debate Management
 
-## Debate Evaluation Criteria (Mistral AI)
+- `!enddebate` - End your current debate session
+- `!enddebate email` - End debate and receive a summary by email
+- `!join @user` - Join another user's debate
+- `!leave` - Leave a debate you've joined
+- `!debates` - List active debates you can join
 
-The Mistral AI model will evaluate user arguments based on the following criteria:
+### Stats and Settings
 
-* **Respectfulness:**
-    * Arguments must be presented in a respectful and civil manner.
-* **Persuasiveness:**
-    * Arguments should be logical, well-supported, and address the core points of the "hot take."
-* **Understanding of Opposing Viewpoint:**
-    * The user must show they understand the viewpoint that they are arguing against.
-* **Accuracy:**
-    * The user should provide factual information.
+- `!stats` - View your debate statistics
+- `!leaderboard` - See top debaters
+- `!levels` - View available debate difficulty levels
+- `!email set youremail@example.com` - Register your email for summaries
 
-## Future Improvements
+## 🌟 Why EchoBreaker Is Useful
 
-* Implement user profiles and preference storage.
-* Add more diverse political perspectives.
-* Improve the accuracy and sophistication of the debate evaluation.
-* Add the capability to have a continuous back and forth debate with the AI.
-* Allow users to select the political perspective of the hot take.
-* Add more discord commands for easier user interaction.
-* implement a cooldown for the debate functionality.
+EchoBreaker serves multiple valuable purposes:
 
-## Troubleshooting
+1. **Skill Development**: Helps users improve their critical thinking, argumentation, and persuasion skills
+2. **Knowledge Expansion**: Exposes users to diverse political viewpoints and current events
+3. **Safe Practice Environment**: Provides a space to practice debating controversial topics without real-world social consequences
+4. **Educational Tool**: Serves as a teaching aid for debate classes, political science courses, and critical thinking education
+5. **Fact-Checking Practice**: Teaches users to verify claims and distinguish between facts and opinions
+6. **Historical Perspective**: Allows users to engage with the rhetorical styles and worldviews of important historical figures
 
-### `Exception: .env not found`!
+## 📋 Future Improvements
 
-If you’re seeing this error, it probably means that your terminal is not open in the right folder. Make sure that it is open inside the folder that contains `bot.py` and `.env`
+- Multi-user debates with AI moderator
+- Voice-based debates using Discord's voice channels
+- Integration with educational platforms for classroom use
+- Expanded fact-checking capabilities
+- More sophisticated debate evaluation metrics
+- Additional historical and contemporary personas
 
-## Contributing
+## 🤝 Contributing
 
-Contributions are welcome! Please submit pull requests or open issues to suggest improvements or report bugs.
+Contributions are welcome! Please feel free to submit a Pull Request.
