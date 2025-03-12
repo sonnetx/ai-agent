@@ -1624,5 +1624,27 @@ async def email_help(ctx):
     
     await ctx.send(embed=embed)
 
+@bot.command(name="testfactcheck")
+async def test_fact_check(ctx, *, claim=None):
+    """Test the fact-checking feature with a specific claim."""
+    if not claim:
+        claim = "Southwest stock went up by 7% after announcing this policy"
+    
+    await ctx.send(f"Testing fact-check on claim: '{claim}'")
+    
+    # First test claim detection
+    claims = debate_agent.fact_checker.extract_claims(claim)
+    await ctx.send(f"Claims detected: {claims}")
+    
+    # Then test the API if claims were found
+    if claims:
+        result = await debate_agent.fact_checker.check_claim(claims[0])
+        if result["success"]:
+            await ctx.send(f"Fact check result: {result['verdict']}\n\n{result['explanation'][:1000]}...")
+        else:
+            await ctx.send(f"Error checking fact: {result['error']}")
+    else:
+        await ctx.send("No factual claims detected in the text.")
+
 # Start the bot, connecting it to the gateway
 bot.run(token)

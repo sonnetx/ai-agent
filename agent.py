@@ -10,6 +10,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import re
+import logging
 
 MISTRAL_MODEL = "mistral-large-latest"
 SYSTEM_PROMPT = """You are EchoBreaker, a debate bot that takes VERY STRONG political positions to engage users in thoughtful debate.
@@ -122,13 +123,19 @@ class FactChecker:
             "Authorization": f"Bearer {self.PERPLEXITY_API_KEY}",
             "Content-Type": "application/json"
         }
+        # Add these lines to the FactChecker class to enable logging
+        self.logger = logging.getLogger("discord")
     
     async def check_claim(self, claim):
         """
         Use Perplexity API to check a factual claim.
         Returns a dict with verification results.
         """
+        # Log the claim being checked
+        self.logger.info(f"Checking claim: {claim}")
+        
         if not self.PERPLEXITY_API_KEY:
+            self.logger.error("No API key found for Perplexity")
             return {"success": False, "error": "No API key found for Perplexity"}
         
         # Format the prompt for fact-checking
@@ -139,19 +146,28 @@ class FactChecker:
                  f"Claim: {claim}"
         
         try:
+            # Log API attempt
+            self.logger.info(f"Sending request to Perplexity API")
+            
             response = requests.post(
                 "https://api.perplexity.ai/chat/completions",
                 headers=self.headers,
                 json={
-                    "model": "sonar-medium-online",
+                    "model": "sonar",
                     "messages": [{"role": "user", "content": prompt}],
                     "stream": False
                 }
             )
             
+            # Log API response status
+            self.logger.info(f"Perplexity API response status: {response.status_code}")
+            
             if response.status_code == 200:
                 result = response.json()
                 fact_check_text = result["choices"][0]["message"]["content"]
+                
+                # Log successful fact check
+                self.logger.info(f"Fact check result: {fact_check_text[:100]}...")
                 
                 # Extract verdict and explanation
                 verdict = "Needs verification"
@@ -182,12 +198,14 @@ class FactChecker:
                     "raw_response": fact_check_text
                 }
             else:
+                self.logger.error(f"API request failed with status code {response.status_code}: {response.text}")
                 return {
                     "success": False,
                     "error": f"API request failed with status code {response.status_code}",
                     "response": response.text
                 }
         except Exception as e:
+            self.logger.error(f"Exception during fact-checking: {str(e)}")
             return {
                 "success": False,
                 "error": str(e)
@@ -198,8 +216,19 @@ class FactChecker:
         Extract potential factual claims from a message.
         Returns a list of claim strings.
         """
-        # This is a simplified approach - in production, you might use NLP models
-        sentences = [s.strip() for s in text.split('.') if len(s.strip()) > 20]
+        # Log the incoming text for debugging
+        self.logger.info(f"Analyzing for factual claims: {text}")
+        
+        # Improved sentence splitting - handle both periods and exclamation/question marks
+        sentences = []
+        for sentence in re.split(r'[.!?]+', text):
+            sentence = sentence.strip()
+            if len(sentence) > 20:
+                sentences.append(sentence)
+        
+        # Log the sentences found
+        self.logger.info(f"Sentences found: {sentences}")
+        
         claims = []
         
         # Comprehensive list of claim indicators
@@ -263,14 +292,35 @@ class FactChecker:
             r'\d+ degrees', r'\d+ percent', r'\d+ percentage points'
         ]
         
+        # Additional simple claims detection for short statements with numbers
+        # This will catch things like "went up by 7%" without requiring longer sentences
+        simple_number_pattern = r'\b\d+\s*%|\b\d+\s*percent'
+        
+        # First, check the entire text for simple numerical statements
+        if re.search(simple_number_pattern, text, re.IGNORECASE):
+            # Find the sentence containing the percentage
+            for sentence in sentences:
+                if re.search(simple_number_pattern, sentence, re.IGNORECASE):
+                    claims.append(sentence)
+                    self.logger.info(f"Found percentage claim: {sentence}")
+        
+        # Then do our normal claim detection for each sentence
         for sentence in sentences:
             sentence_lower = sentence.lower()
             # Check if the sentence contains any claim indicators
             if any(indicator in sentence_lower for indicator in claim_indicators):
                 claims.append(sentence)
+                self.logger.info(f"Found indicator-based claim: {sentence}")
             # Check for numerical patterns
             elif any(re.search(pattern, sentence, re.IGNORECASE) for pattern in numerical_patterns):
                 claims.append(sentence)
+                self.logger.info(f"Found pattern-based claim: {sentence}")
+        
+        # Deduplicate claims
+        claims = list(set(claims))
+        
+        # Log the claims found
+        self.logger.info(f"Claims detected: {claims}")
         
         # Limit to 1-2 claims to avoid excessive API usage
         return claims[:2]
