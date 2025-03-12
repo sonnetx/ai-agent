@@ -215,8 +215,6 @@ class FactChecker:
         """
         Extract potential factual claims from a message.
         Returns a list of claim strings.
-        
-        Now more selective - only extracts specific factual claims.
         """
         # Log the incoming text for debugging
         self.logger.info(f"Analyzing for factual claims: {text}")
@@ -233,70 +231,99 @@ class FactChecker:
         
         claims = []
         
-        # Specific factual claim indicators - more selective than before
-        strong_factual_indicators = [
-            # Statistical indicators
-            "statistics show", "according to statistics", "data shows", "the data indicates",
-            "survey found", "poll shows", "research found", "studies indicate",
+        # Comprehensive list of claim indicators
+        claim_indicators = [
+            # Research and data indicators
+            "according to", "studies show", "research indicates", "statistics show",
+            "data shows", "evidence suggests", "report", "survey", "poll", "analysis",
+            "research", "study", "findings", "data", "evidence", "statistics",
             
-            # Specific percentage indicators
-            "% of", "percent of Americans", "percentage of people", "X% of",
+            # Numerical indicators
+            "% of", "percent of", "percentage", "figures", "rates", "numbers",
+            "majority", "minority", "half", "third", "quarter", "fraction",
             
-            # Referenced facts
-            "according to", "as reported by", "as stated by", "based on data from",
+            # Time-based indicators
+            "in 2", "last year", "this year", "decade", "century", "recently",
+            "historically", "traditionally", "currently", "nowadays", "today",
             
-            # Strong assertions of fact
-            "it is a fact that", "the fact is", "in reality", "the truth is that",
+            # Change indicators
+            "increase", "decrease", "rise", "fall", "grew", "declined", "dropped",
+            "went up", "went down", "surged", "plummeted", "skyrocketed", "collapsed",
+            "doubled", "tripled", "quadrupled", "halved", "expanded", "contracted",
             
-            # Economic specific indicators
-            "the stock rose by", "the stock went up by", "increased by", "grew by", 
-            "stock price increased", "market value grew"
+            # Economic indicators
+            "stock", "price", "market", "economy", "economic", "financial", "fiscal",
+            "gdp", "inflation", "recession", "growth", "deficit", "surplus", "debt",
+            "investment", "revenue", "profit", "loss", "sales", "earnings", "dividend",
+            "shareholders", "investors", "consumers", "customers", "industry", "sector",
+            
+            # Quantity indicators
+            "billion", "million", "thousand", "hundred", "dozens", "numerous", "several",
+            "many", "few", "countless", "abundant", "scarce", "rare", "common",
+            
+            # Reporting indicators
+            "announced", "reported", "stated", "confirmed", "revealed", "disclosed",
+            "claimed", "asserted", "declared", "mentioned", "noted", "cited",
+            "published", "released", "issued", "documented", "verified",
+            
+            # Comparison indicators
+            "more than", "less than", "higher than", "lower than", "greater than",
+            "better than", "worse than", "compared to", "relative to", "versus",
+            
+            # Factual statement indicators
+            "fact", "truth", "reality", "actually", "indeed", "certainly", "definitely",
+            "undoubtedly", "indisputably", "objectively", "empirically", "factually",
+            
+            # Policy and law indicators
+            "law", "policy", "regulation", "legislation", "rule", "mandate", "ban",
+            "legal", "illegal", "constitutional", "unconstitutional", "prohibited",
+            "required", "mandatory", "permitted", "allowed", "forbidden"
         ]
         
-        # Expanded patterns for definitive numerical claims
-        definitive_numerical_patterns = [
-            # Percentages
-            r'\b\d+\.?\d*\s*%', r'\b\d+\.?\d*\s*percent\b',
-            
-            # Monetary values with clear attribution
-            r'\$\d+\.?\d*\s*billion', r'\$\d+\.?\d*\s*million',
-            
-            # Growth/reduction with specific numbers
-            r'increased by \d+\.?\d*\s*%', r'decreased by \d+\.?\d*\s*%',
-            r'rose by \d+\.?\d*\s*%', r'fell by \d+\.?\d*\s*%',
-            r'grew by \d+\.?\d*\s*%', r'declined by \d+\.?\d*\s*%',
-            
-            # Specific stock percentages
-            r'stock\s.*\b\d+\.?\d*\s*%', r'shares\s.*\b\d+\.?\d*\s*%',
-            r'market\s.*\b\d+\.?\d*\s*%'
+        # Expanded patterns for numerical claims
+        numerical_patterns = [
+            r'\d+%', r'\d+ percent', r'\$\d+', r'\d+ dollars', r'\d+ euros',
+            r'\d+ people', r'\d+ million', r'\d+ billion', r'\d+ trillion',
+            r'\d+th', r'\d+nd', r'\d+rd', r'\d+st', r'\d+ times', r'\d+-fold',
+            r'increased by \d+', r'decreased by \d+', r'rose by \d+', r'fell by \d+',
+            r'grew by \d+', r'declined by \d+', r'dropped by \d+', r'gained \d+',
+            r'lost \d+', r'added \d+', r'subtracted \d+', r'multiplied by \d+',
+            r'divided by \d+', r'factor of \d+', r'ratio of \d+', r'proportion of \d+',
+            r'\d+ degrees', r'\d+ percent', r'\d+ percentage points'
         ]
         
-        # For each sentence, determine if it contains a clear factual claim
+        # Additional simple claims detection for short statements with numbers
+        # This will catch things like "went up by 7%" without requiring longer sentences
+        simple_number_pattern = r'\b\d+\s*%|\b\d+\s*percent'
+        
+        # First, check the entire text for simple numerical statements
+        if re.search(simple_number_pattern, text, re.IGNORECASE):
+            # Find the sentence containing the percentage
+            for sentence in sentences:
+                if re.search(simple_number_pattern, sentence, re.IGNORECASE):
+                    claims.append(sentence)
+                    self.logger.info(f"Found percentage claim: {sentence}")
+        
+        # Then do our normal claim detection for each sentence
         for sentence in sentences:
             sentence_lower = sentence.lower()
-            
-            # 1. Check for strong factual indicators
-            if any(indicator.lower() in sentence_lower for indicator in strong_factual_indicators):
+            # Check if the sentence contains any claim indicators
+            if any(indicator in sentence_lower for indicator in claim_indicators):
                 claims.append(sentence)
-                self.logger.info(f"Found strong factual claim: {sentence}")
-                continue
-            
-            # 2. Check for definitive numerical patterns
-            if any(re.search(pattern, sentence, re.IGNORECASE) for pattern in definitive_numerical_patterns):
-                # Additional check: sentence should have a verb and subject context
-                # This helps filter out simple mentions of numbers without claims
-                if re.search(r'\b(is|was|are|were|has|have|had|showed|shows|increased|decreased|went)\b', sentence_lower):
-                    claims.append(sentence)
-                    self.logger.info(f"Found definitive numerical claim: {sentence}")
+                self.logger.info(f"Found indicator-based claim: {sentence}")
+            # Check for numerical patterns
+            elif any(re.search(pattern, sentence, re.IGNORECASE) for pattern in numerical_patterns):
+                claims.append(sentence)
+                self.logger.info(f"Found pattern-based claim: {sentence}")
         
         # Deduplicate claims
         claims = list(set(claims))
         
         # Log the claims found
-        self.logger.info(f"Claims detected for fact-checking: {claims}")
+        self.logger.info(f"Claims detected: {claims}")
         
-        # Limit to the single most definitive claim
-        return claims[:1]
+        # Limit to 1-2 claims to avoid excessive API usage
+        return claims[:2]
 
 class HistoricalFigures:
     """Manages historical figure personas for debates"""
@@ -492,6 +519,9 @@ class MistralAgent:
         self.user_debate_levels = {}
         # Add email manager
         self.email_manager = EmailManager()
+        # Add these lines if they don't exist
+        self.user_difficulty_levels = {}
+        self.user_level_instructions = {}
     
     def _get_user_conversation(self, user_id):
         """Get conversation history for a specific user, creating it if needed"""
@@ -562,39 +592,8 @@ class MistralAgent:
         return descriptions.get(level, descriptions["intermediate"])
     
     def _get_level_instructions(self, user_id):
-        """Get system instructions for a user's current debate level"""
-        level = self._get_user_debate_level(user_id)
-        
-        instructions = {
-            "beginner": """
-DEBATE LEVEL: BEGINNER
-- Use vocabulary and sentence structures accessible to high school students
-- Present your arguments clearly with straightforward reasoning
-- Be somewhat willing to acknowledge the validity of the user's points
-- Provide concrete examples and simple analogies
-- Challenge the user's arguments gently, focusing on major flaws
-- Keep sentences relatively short and direct
-""",
-            "intermediate": """
-DEBATE LEVEL: INTERMEDIATE
-- Use vocabulary and sentence structures appropriate for college-educated adults
-- Present nuanced arguments that consider multiple perspectives
-- Maintain your position firmly but acknowledge reasonable points
-- Balance theoretical concepts with practical examples
-- Challenge the user's arguments directly but respectfully
-- Use moderately complex sentence structures and rhetorical techniques
-""",
-            "advanced": """
-DEBATE LEVEL: ADVANCED
-- Use advanced vocabulary, complex sentence structures, and sophisticated rhetorical techniques
-- Present complex, multi-layered arguments drawing on interdisciplinary knowledge
-- Aggressively defend your position with minimal concessions
-- Make nuanced distinctions and address subtle counterarguments
-- Rigorously challenge the premises and logic of the user's arguments
-- Use abstract reasoning and hypothetical scenarios to strengthen your position
-"""
-        }
-        return instructions.get(level, instructions["intermediate"])
+        """Get the stored level instructions for a user"""
+        return self.user_level_instructions.get(user_id, "Use moderately complex language and reasonably strong arguments.")
     
     def set_historical_figure(self, figure_id, user_id):
         """Set the bot to speak as a historical figure for a specific user"""
@@ -618,65 +617,83 @@ DEBATE LEVEL: ADVANCED
         if user_id in self.user_figures:
             del self.user_figures[user_id]
     
+    async def generate_response(self, message):
+        """Generate a response without fact-checking"""
+        user_id = message.author.id
+        
+        # Get user's conversation history
+        conversation = self._get_user_conversation(user_id)
+        
+        # Add the user message to conversation history
+        conversation.append({"role": "user", "content": message.content})
+        
+        # Check if we're debating as a historical figure
+        user_figure = self._get_user_figure(user_id)
+        if user_figure:
+            # Reinforce the persona reminder if needed
+            persona_reminder = f"IMPORTANT: You are speaking as {user_figure['name']}. Maintain this historical figure's voice, style, and perspective completely in your response."
+            complexity_reminder = self._get_level_instructions(user_id)
+            conversation.append({"role": "system", "content": f"{persona_reminder}\n{complexity_reminder}"})
+        
+        # Get response from Mistral
+        response_obj = await self.client.chat.complete_async(
+            model=MISTRAL_MODEL,
+            messages=conversation,
+        )
+        
+        # Extract the assistant's message
+        assistant_message = response_obj.choices[0].message
+        
+        # Add the assistant's response to conversation history
+        conversation.append({"role": "assistant", "content": assistant_message.content})
+        
+        # Return the response text
+        return assistant_message.content
+
     async def fact_check_and_respond(self, message):
         """
-        Process a user message, check for factual claims, and generate a response.
-        Now more selective about when to fact-check.
+        Check a message for factual claims and respond.
+        Returns dict with response and fact check results.
         """
-        user_message = message.content
+        # Don't fact-check the bot's own messages
+        if message.author.bot:
+            response = await self.generate_response(message)
+            return {"response": response, "fact_check": None}
         
-        # Process the message and generate a response
+        # First, generate the response as usual
         response = await self.generate_response(message)
         
-        # By default, no fact checking
-        fact_check = None
+        # Extract claims from the message
+        claims = self.fact_checker.extract_claims(message.content)
         
-        # Only attempt fact checking for messages that likely contain factual claims
-        # Quick pre-check for numbers, percentages, or strong factual language
-        contains_numbers = bool(re.search(r'\d+', user_message))
-        contains_factual_indicators = any(indicator in user_message.lower() for indicator in [
-            "according to", "fact", "research", "study", "data", "statistics", "percent", 
-            "survey", "evidence", "report"
-        ])
+        # If no claims found, return just the response
+        if not claims:
+            return {"response": response, "fact_check": None}
         
-        if contains_numbers or contains_factual_indicators:
-            # Extract potential factual claims from the user message
-            claims = self.fact_checker.extract_claims(user_message)
-            
-            if claims:
-                # We found specific factual claims worth checking
-                claim = claims[0]
-                try:
-                    # Fact-check the claim
-                    result = await self.fact_checker.check_claim(claim)
-                    
-                    if result["success"]:
-                        # Format the fact-check result
-                        if result["verdict"] == "True":
-                            verdict_emoji = "✅"
-                        elif result["verdict"] == "False":
-                            verdict_emoji = "❌"
-                        elif result["verdict"] == "Partly True":
-                            verdict_emoji = "⚠️"
-                        else:  # Needs Context
-                            verdict_emoji = "ℹ️"
-                        
-                        fact_check = f"{verdict_emoji} **Fact Check**: \"{claim}\"\n\n{result['explanation'][:500]}..."
-                        
-                        # If there are references, include them
-                        if result["references"]:
-                            fact_check += "\n\n**Sources:**\n"
-                            for i, ref in enumerate(result["references"][:3], 1):
-                                fact_check += f"{i}. {ref}\n"
-                
-                except Exception as e:
-                    print(f"Error during fact checking: {e}")
+        # Check the first claim
+        fact_check_result = await self.fact_checker.check_claim(claims[0])
         
-        return {
-            "response": response,
-            "fact_check": fact_check
-        }
-    
+        # If check failed, return just the response
+        if not fact_check_result["success"]:
+            return {"response": response, "fact_check": None}
+        
+        # Format the fact check result - make it more concise
+        verdict = fact_check_result["verdict"]
+        emoji = "✅" if verdict == "True" else "⚠️" if verdict in ["Partly True", "Needs Context"] else "❌"
+        
+        # Shorter, more concise fact-check text
+        fact_check_text = f"{emoji} **Fact Check**: \"{claims[0]}\"\n**Verdict**: {verdict}"
+        
+        # Only add a brief explanation if not True
+        if verdict != "True":
+            # Get a shorter explanation
+            explanation = fact_check_result['explanation']
+            # Find the first sentence or two
+            brief_explanation = ". ".join(explanation.split(". ")[:2]) + "."
+            fact_check_text += f"\n\n**Explanation**: {brief_explanation}"
+        
+        return {"response": response, "fact_check": fact_check_text}
+
     async def run(self, message: discord.Message):
         """Legacy method for compatibility"""
         result = await self.fact_check_and_respond(message)
@@ -720,6 +737,23 @@ DEBATE LEVEL: ADVANCED
                 self.user_conversations[user_id].append(reminder)
                 # Then add recent messages
                 self.user_conversations[user_id].extend(recent_messages)
+
+    def set_difficulty_level(self, user_id, level):
+        """Set the debate difficulty level for a specific user"""
+        # This is a renamed version of the original set_debate_level method
+        # Store the level in user data
+        self.user_difficulty_levels[user_id] = level
+        
+        # Set the appropriate instructions based on level
+        if level == "beginner":
+            instructions = "Use simpler language and gentler arguments. Be patient and educational."
+        elif level == "advanced":
+            instructions = "Use sophisticated language, complex arguments, and be more aggressive in your rebuttals."
+        else:  # intermediate (default)
+            instructions = "Use moderately complex language and reasonably strong arguments."
+        
+        # Store these instructions for later use
+        self.user_level_instructions[user_id] = instructions
 
 class DebateStatsTracker:
     def __init__(self, file_path="debate_stats.json"):
