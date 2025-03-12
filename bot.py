@@ -47,17 +47,7 @@ class FakeMessage:
     """A simple class to simulate a Discord message for the agent."""
     def __init__(self, content, author=None):
         self.content = content
-        self.author = author or FakeAuthor(0)  # Default author with ID 0 if none provided
-
-    async def reply(self, content):
-        # Mock reply method for compatibility
-        pass
-
-class FakeAuthor:
-    def __init__(self, user_id, bot=False, name="System"):
-        self.id = user_id
-        self.bot = bot
-        self.name = name
+        self.author = author
 
 @bot.event
 async def on_ready():
@@ -163,8 +153,8 @@ async def on_message(message: discord.Message):
     # Then check if user is a participant in any debate
     is_participant = message.author.id in user_current_debate
     
-    # Process the message if user is in any debate and is not the bot
-    if (is_initiator or is_participant) and not message.author.bot:
+    # Process the message if user is in any debate
+    if is_initiator or is_participant:
         logger.info(f"Processing debate message from {message.author}: {message.content}")
         
         # Get the appropriate debate info
@@ -203,35 +193,15 @@ async def on_message(message: discord.Message):
         # Reinforce the historical figure persona if one is being used
         debate_agent.reinforce_persona(message.author.id)
         
-        # Make fact-checking even more selective - only obvious factual claims
-        should_fact_check = (
-            message_length > 100 and
-            (
-                # Only fact-check messages with clear numeric claims or citations
-                re.search(r'\b\d+\s*%', message.content, re.IGNORECASE) or  # Percentage
-                re.search(r'\$\d+', message.content, re.IGNORECASE) or      # Dollar amounts
-                re.search(r'\b\d+\s*billion|\b\d+\s*million', message.content, re.IGNORECASE) or  # Large numbers
-                any(phrase in message.content.lower() for phrase in [
-                    "according to", "research shows", "studies indicate", "data proves",
-                    "statistics show", "survey results", "evidence demonstrates"
-                ])
-            )
-        )
+        # Use the enhanced fact-checking response method
+        response_data = await debate_agent.fact_check_and_respond(message)
+        response = response_data["response"]
+        fact_check = response_data["fact_check"]
         
-        if should_fact_check:
-            # Use the enhanced fact-checking response method
-            response_data = await debate_agent.fact_check_and_respond(message)
-            response = response_data["response"]
-            fact_check = response_data["fact_check"]
-            
-            # Award bonus points for accurate claims
-            if fact_check and "✅" in fact_check:
-                participant_data["points_accumulated"] += 2
-                fact_check += "\n*+2 points awarded for accurate claims!*"
-        else:
-            # Skip fact-checking, just get response
-            response = await debate_agent.generate_response(message)
-            fact_check = None
+        # Award bonus points for accurate claims
+        if fact_check and "✅" in fact_check:
+            participant_data["points_accumulated"] += 2
+            fact_check += "\n*+2 points awarded for accurate claims!*"
         
         # Send the response
         if len(response) <= 2000:
@@ -253,177 +223,182 @@ async def on_message(message: discord.Message):
             await message.channel.send(embed=fact_check_embed)
 
 # Commands
-@bot.command(name="debate", help="Start a debate on a specific topic.")
-async def debate(ctx, *args):
+@bot.command(name="debate", help="Start a political debate with the bot. Optional: [figure] [level] [topic]")
+async def debate(ctx, arg1=None, arg2=None, *, topic=None):
     """
-    Starts a debate on the specified topic. If no topic is provided, uses a random news article.
+    Start a debate session with the bot.
     
-    Optional arguments:
-    - level: beginner, intermediate, advanced
-    - historical figure: Use a name like 'socrates', 'churchill', etc.
-    
-    Examples:
-    !debate climate change
-    !debate intermediate gun control
-    !debate churchill democracy
-    !debate socrates advanced ethics
+    Can be used in multiple ways:
+    !debate - Start debate with random topic
+    !debate topic - Start debate on specific topic
+    !debate figure topic - Start debate as historical figure
+    !debate level topic - Start debate with specific level
+    !debate figure level topic - Full specification
     """
     user_id = ctx.author.id
     
-    # Check if user already has an active debate
+    # Check if user is already in a debate
     if user_id in active_debates:
-        await ctx.send("You already have an active debate. End it with `!enddebate` before starting a new one.")
+        await ctx.send("You're already in an active debate! Type `!enddebate` to end it first.")
         return
     
-    # Check if user is already participating in someone else's debate
-    if user_id in user_current_debate:
-        debate_id = user_current_debate[user_id]
-        initiator_id = int(debate_id.split('-')[1])
-        initiator = await bot.fetch_user(initiator_id)
-        await ctx.send(f"You're already participating in {initiator.name}'s debate. Leave it with `!leave` before starting your own.")
-        return
+    # Parse the arguments
+    figure = None
+    level = "intermediate"  # Default level
     
-    # Parse arguments
-    difficulty_level = "intermediate"  # default
-    topic = ""
-    figure_id = None
-    
-    # Check for difficulty level or historical figure
-    if args:
-        first_arg = args[0].lower()
-        if first_arg in ["beginner", "intermediate", "advanced"]:
-            difficulty_level = first_arg
-            topic = " ".join(args[1:]) if len(args) > 1 else ""
-        elif debate_agent.historical_figures.is_valid_figure(first_arg):
-            figure_id = first_arg
-            # Check if the second argument is a difficulty level
-            if len(args) > 1 and args[1].lower() in ["beginner", "intermediate", "advanced"]:
-                difficulty_level = args[1].lower()
-                topic = " ".join(args[2:]) if len(args) > 2 else ""
+    # Process arguments
+    if arg1:
+        # Check if arg1 is a figure name
+        if debate_agent.historical_figures.get_figure_details(arg1):
+            figure = arg1
+        # Check if arg1 is a level
+        elif arg1.lower() in ["beginner", "intermediate", "advanced"]:
+            level = arg1.lower()
+        # Otherwise it's part of the topic
+        else:
+            if topic:
+                topic = f"{arg1} {arg2} {topic}"
+            elif arg2:
+                topic = f"{arg1} {arg2}"
             else:
-                topic = " ".join(args[1:]) if len(args) > 1 else ""
+                topic = arg1
+            arg1 = None
+            arg2 = None
+    
+    # Process second argument if first was used
+    if arg1 and arg2:
+        # If we already have a figure, check for level
+        if figure and arg2.lower() in ["beginner", "intermediate", "advanced"]:
+            level = arg2.lower()
+        # Otherwise it's part of the topic
         else:
-            topic = " ".join(args)
+            if topic:
+                topic = f"{arg2} {topic}"
+            else:
+                topic = arg2
     
-    # Fetch a news article based on the topic
-    article = None
-    try:
-        if topic:
-            # Show typing indicator while fetching article
-            async with ctx.typing():
-                article = news_agent.search_articles(topic)
-        else:
-            # Show typing indicator while fetching top article
-            async with ctx.typing():
-                article = news_agent.get_top_article()
-    except Exception as e:
-        logger.error(f"Error fetching news article: {e}")
-        await ctx.send("Sorry, I couldn't fetch a news article right now. Please try again later or specify a topic.")
-        return
+    # Set the debate level for this specific user
+    debate_agent.set_debate_level(level, ctx.author.id)
+    level_info = debate_agent.get_debate_level_description(ctx.author.id)
     
-    if not article:
-        await ctx.send("I couldn't find a relevant news article. Please try a different topic.")
-        return
-    
-    # Set up historical figure if requested
-    if figure_id:
-        success = debate_agent.set_historical_figure(figure_id, user_id)
-        if not success:
-            await ctx.send(f"I couldn't find information about '{figure_id}'. Try a different historical figure or check `!figures` for available options.")
-            return
-        figure_details = debate_agent.historical_figures.get_figure_details(figure_id)
-        await ctx.send(f"You'll be debating against {figure_details['name']} on this topic!")
+    # Set historical figure for this specific user if specified
+    figure_desc = ""
+    if figure:
+        figure_details = debate_agent.historical_figures.get_figure_details(figure)
+        debate_agent.set_historical_figure(figure, ctx.author.id)
+        figure_desc = f"**Debating as: {figure_details['name']}**\n{figure_details['description']}\n\n"
     else:
-        # Reset to default persona if no figure specified
-        debate_agent.reset_persona(user_id)
+        debate_agent.reset_persona(ctx.author.id)
     
-    # Set the difficulty level for this user
-    debate_agent.set_difficulty_level(user_id, difficulty_level)
-    
-    # Create a fake message for the debate agent with the article title and proper author
-    setup_message = FakeMessage(
-        f"Take a strong political position on this news article: {article['title']} - {article['source']['name']}",
-        author=FakeAuthor(user_id, bot=False, name="Debate_Initiator")
+    # Display settings
+    settings_embed = discord.Embed(
+        title="Debate Settings",
+        color=discord.Color.blue()
     )
     
-    # Show typing indicator while generating response
-    async with ctx.typing():
-        # CHANGE HERE: Use generate_response instead of run to avoid fact-checking
-        opening_position = await debate_agent.generate_response(setup_message)
+    if figure:
+        settings_embed.add_field(
+            name="Historical Figure",
+            value=f"{figure_details['name']} ({figure_details['era']})",
+            inline=False
+        )
     
-    # Set up tracking for the active debate
-    debate_info = {
-        "article": article,
-        "start_time": datetime.datetime.now(),
-        "messages_count": 1,  # Starting with the opening position
-        "participants": {
-            str(user_id): {
-                "messages_count": 0,
-                "points_accumulated": 0,
-                "difficulty_level": difficulty_level
-            }
-        },
-        "historical_figure": figure_id
-    }
-    
-    # Store the debate info
-    active_debates[user_id] = debate_info
-    debate_id = f"debate-{user_id}"
-    debate_participants[debate_id] = {user_id}
-    user_current_debate[user_id] = debate_id
-    
-    # Apply difficulty level point modifier
-    difficulty_modifier = 0.8 if difficulty_level == "beginner" else 1.0 if difficulty_level == "intermediate" else 1.2
-    
-    # Display article info
-    embed = discord.Embed(
-        title=article['title'],
-        description=article['description'],
-        color=discord.Color.blue(),
-        url=article['url']
-    )
-    
-    if 'urlToImage' in article and article['urlToImage']:
-        embed.set_image(url=article['urlToImage'])
-    
-    embed.add_field(
-        name="Source",
-        value=f"{article['source']['name']} | {article.get('publishedAt', 'Unknown date')}",
-        inline=False
-    )
-    
-    embed.add_field(
-        name="Difficulty",
-        value=f"{difficulty_level.capitalize()} ({difficulty_modifier}x points)",
+    settings_embed.add_field(
+        name="Level",
+        value=f"{level_info['name']} (x{level_info['point_multiplier']} points)",
         inline=True
     )
     
-    if figure_id:
-        embed.add_field(
-            name="Historical Figure",
-            value=figure_details['name'],
-            inline=True
-        )
-    
-    await ctx.send("Let's begin our debate!", embed=embed)
-    
-    # Send the opening position
-    await ctx.send(opening_position)
-    
-    # Send instructions for the debate
-    instructions = (
-        "What's your position on this? I'll defend my viewpoint, and you try to convince me otherwise.\n"
-        "(You're now in an active debate - all your messages will be part of the debate until you type !enddebate)\n\n"
-        "Debate Tips:\n"
-        "• Longer, thoughtful responses earn more points\n"
-        "• Present evidence to support your arguments\n"
-        "• Address my key points directly"
+    settings_embed.add_field(
+        name="Difficulty",
+        value=level_info['difficulty'],
+        inline=False
     )
     
-    if not figure_id:
-        instructions += f"\n👥 Others can join this debate by typing !join @{ctx.author.name}"
+    settings_embed.add_field(
+        name="Complexity",
+        value=level_info['complexity'],
+        inline=False
+    )
     
-    await ctx.send(instructions)
+    await ctx.send("Debate settings:", embed=settings_embed)
+    
+    if topic:
+        await ctx.send(f"Let's start a debate about {topic}! I'll find a relevant news article for us to discuss...")
+        # Get an article related to the specified topic
+        top_article = news_agent.get_article_by_topic(topic)
+    else:
+        await ctx.send("Let's start a debate! I'll find a current news article for us to discuss...")
+        # Pull a random top article from the news API
+        top_article = news_agent.get_top_article()
+
+    title = top_article["title"]
+    author = top_article["author"] if top_article["author"] else "Unknown author"
+    description = top_article["description"] if top_article["description"] else "No description available"
+    url = top_article["url"]
+    
+    # Display the article to the user
+    article_embed = discord.Embed(
+        title=title,
+        description=description,
+        url=url,
+        color=discord.Color.blue()
+    )
+    article_embed.set_author(name=author)
+    article_embed.set_footer(text="Source: NewsAPI")
+    
+    await ctx.send("Here's a news article on this topic:", embed=article_embed)
+    
+    # Set up the debate agent with context about the article
+    setup_message = FakeMessage(
+        content=f"Take a strong political position on this news article: {title}. {description} " +
+                f"Difficulty level: {level}",
+        author=ctx.author
+    )
+    
+    # Get the AI's opening position
+    opening_position = await debate_agent.run(setup_message)
+    
+    # Truncate if too long
+    if len(opening_position) > 1500:
+        opening_position = opening_position[:1497] + "..."
+    
+    # Send the debate prompt with gamification info
+    await ctx.send(f"**Let's begin our debate!**\n\n{opening_position}\n\n" +
+                   f"What's your position on this? I'll defend my viewpoint, and you try to convince me otherwise.\n" +
+                   f"(You're now in an active debate - all your messages will be part of the debate until you type `!enddebate`)\n\n" +
+                   f"**Debate Tips:**\n" +
+                   f"• Longer, thoughtful responses earn more points\n" +
+                   f"• Present evidence to support your arguments\n" +
+                   f"• Address my key points directly")
+    
+    # Create a unique debate ID
+    debate_id = f"debate-{ctx.author.id}"
+    
+    # Mark user as in an active debate
+    active_debates[ctx.author.id] = {
+        "article": top_article,
+        "start_time": datetime.datetime.now(),
+        "level": level,
+        "points_accumulated": 0,
+        "messages_count": 0,
+        "channel_id": ctx.channel.id,  # Record the channel where the debate is happening
+        "participants": {
+            str(ctx.author.id): {
+                "messages_count": 0, 
+                "total_chars": 0,
+                "points_accumulated": 0,
+                "join_time": datetime.datetime.now()
+            }
+        }
+    }
+    
+    # Add initiator to the debate participants
+    debate_participants[debate_id] = {ctx.author.id}
+    user_current_debate[ctx.author.id] = debate_id
+    
+    # Send information about joining the debate
+    await ctx.send("\n\n👥 **Others can join this debate by typing `!join @" + ctx.author.name + "`**")
 
 @bot.command(name="enddebate", help="End your current debate session.")
 async def enddebate(ctx, send_email: str = None):
