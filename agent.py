@@ -9,7 +9,6 @@ from urllib.parse import quote
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-import re
 
 MISTRAL_MODEL = "mistral-large-latest"
 SYSTEM_PROMPT = """You are EchoBreaker, a debate bot that takes VERY STRONG political positions to engage users in thoughtful debate.
@@ -202,74 +201,17 @@ class FactChecker:
         sentences = [s.strip() for s in text.split('.') if len(s.strip()) > 20]
         claims = []
         
-        # Comprehensive list of claim indicators
+        # Heuristics to identify likely factual claims
         claim_indicators = [
-            # Research and data indicators
             "according to", "studies show", "research indicates", "statistics show",
-            "data shows", "evidence suggests", "report", "survey", "poll", "analysis",
-            "research", "study", "findings", "data", "evidence", "statistics",
-            
-            # Numerical indicators
-            "% of", "percent of", "percentage", "figures", "rates", "numbers",
-            "majority", "minority", "half", "third", "quarter", "fraction",
-            
-            # Time-based indicators
-            "in 2", "last year", "this year", "decade", "century", "recently",
-            "historically", "traditionally", "currently", "nowadays", "today",
-            
-            # Change indicators
-            "increase", "decrease", "rise", "fall", "grew", "declined", "dropped",
-            "went up", "went down", "surged", "plummeted", "skyrocketed", "collapsed",
-            "doubled", "tripled", "quadrupled", "halved", "expanded", "contracted",
-            
-            # Economic indicators
-            "stock", "price", "market", "economy", "economic", "financial", "fiscal",
-            "gdp", "inflation", "recession", "growth", "deficit", "surplus", "debt",
-            "investment", "revenue", "profit", "loss", "sales", "earnings", "dividend",
-            "shareholders", "investors", "consumers", "customers", "industry", "sector",
-            
-            # Quantity indicators
-            "billion", "million", "thousand", "hundred", "dozens", "numerous", "several",
-            "many", "few", "countless", "abundant", "scarce", "rare", "common",
-            
-            # Reporting indicators
-            "announced", "reported", "stated", "confirmed", "revealed", "disclosed",
-            "claimed", "asserted", "declared", "mentioned", "noted", "cited",
-            "published", "released", "issued", "documented", "verified",
-            
-            # Comparison indicators
-            "more than", "less than", "higher than", "lower than", "greater than",
-            "better than", "worse than", "compared to", "relative to", "versus",
-            
-            # Factual statement indicators
-            "fact", "truth", "reality", "actually", "indeed", "certainly", "definitely",
-            "undoubtedly", "indisputably", "objectively", "empirically", "factually",
-            
-            # Policy and law indicators
-            "law", "policy", "regulation", "legislation", "rule", "mandate", "ban",
-            "legal", "illegal", "constitutional", "unconstitutional", "prohibited",
-            "required", "mandatory", "permitted", "allowed", "forbidden"
-        ]
-        
-        # Expanded patterns for numerical claims
-        numerical_patterns = [
-            r'\d+%', r'\d+ percent', r'\$\d+', r'\d+ dollars', r'\d+ euros',
-            r'\d+ people', r'\d+ million', r'\d+ billion', r'\d+ trillion',
-            r'\d+th', r'\d+nd', r'\d+rd', r'\d+st', r'\d+ times', r'\d+-fold',
-            r'increased by \d+', r'decreased by \d+', r'rose by \d+', r'fell by \d+',
-            r'grew by \d+', r'declined by \d+', r'dropped by \d+', r'gained \d+',
-            r'lost \d+', r'added \d+', r'subtracted \d+', r'multiplied by \d+',
-            r'divided by \d+', r'factor of \d+', r'ratio of \d+', r'proportion of \d+',
-            r'\d+ degrees', r'\d+ percent', r'\d+ percentage points'
+            "% of", "percent of", "data shows", "evidence suggests", "report",
+            "survey", "poll", "analysis", "fact", "figures", "rates", "numbers",
+            "in 2", "increase", "decrease", "rise", "fall", "grew", "declined"
         ]
         
         for sentence in sentences:
-            sentence_lower = sentence.lower()
             # Check if the sentence contains any claim indicators
-            if any(indicator in sentence_lower for indicator in claim_indicators):
-                claims.append(sentence)
-            # Check for numerical patterns
-            elif any(re.search(pattern, sentence, re.IGNORECASE) for pattern in numerical_patterns):
+            if any(indicator in sentence.lower() for indicator in claim_indicators):
                 claims.append(sentence)
         
         # Limit to 1-2 claims to avoid excessive API usage
