@@ -69,7 +69,7 @@ async def on_ready():
         )
         welcome_embed.add_field(
             name="How to start",
-            value="Type `!debate [topic]` to begin a debate\n• I'll find a current news article on your topic for us to discuss\n• Example: `!debate climate change` or just `!debate` for a random trending topic",
+            value="Type `!debate [topic]` to begin a debate\nExample: `!debate climate change` or just `!debate` for a random topic",
             inline=False
         )
         welcome_embed.add_field(
@@ -81,29 +81,11 @@ async def on_ready():
             inline=False
         )
         welcome_embed.add_field(
-            name="Fact-Checking",
-            value="• Your factual claims are automatically verified during debates\n"
-                  "• Accurate claims earn bonus points\n"
-                  "• Look for the fact-check results after bot responses\n"
-                  "• Type `!factcheck` to learn more about this feature",
-            inline=False
-        )
-        welcome_embed.add_field(
-            name="Earning Points",
-            value="• Longer debates earn more points (up to 30 base points)\n"
-                 "• Longer, thoughtful responses get bonus points\n"
-                 "• Complete debates daily to build your streak\n"
-                 "• Earn achievements to showcase your skills",
-            inline=False
-        )
-        welcome_embed.add_field(
             name="Commands",
             value="`!stats` - View your debate statistics\n"
                  "`!leaderboard` - See top debaters\n"
                  "`!enddebate` - End current debate session\n"
-                 "`!enddebate email` - End debate and receive summary by email\n"
-                 "`!join @user` - Join another user's debate\n"
-                 "`!leave` - Leave a debate you've joined",
+                 "`!enddebate email` - End debate and receive summary by email",
             inline=False
         )
         welcome_embed.add_field(
@@ -115,19 +97,27 @@ async def on_ready():
             inline=False
         )
         welcome_embed.add_field(
+            name="Earning Points",
+            value="• Longer debates earn more points (up to 30 base points)\n"
+                 "• Longer, thoughtful responses get bonus points\n"
+                 "• Complete debates daily to build your streak\n"
+                 "• Earn achievements to showcase your skills",
+            inline=False
+        )
+        welcome_embed.add_field(
+            name="Features",
+            value="• Gamified debates with points and levels\n"
+                  "• AI-powered fact-checking of your claims\n"
+                  "• Personalized feedback to improve your skills\n"
+                  "• Email summaries with debate coach analysis",
+            inline=False
+        )
+        welcome_embed.add_field(
             name="Historical Figures",
             value="`!figures` - View available historical figures\n"
                   "`!figure [name]` - View details about a figure\n"
                   "`!customfigure [name]` - Create any historical figure\n"
                   "`!debate [figure] [level] [topic]` - Debate as a historical figure",
-            inline=False
-        )
-        welcome_embed.add_field(
-            name="Multi-User Debates",
-            value="• Start a debate that others can join\n"
-                  "• Join ongoing debates with `!join @username`\n"
-                  "• See active debates with `!debates`\n"
-                  "• Compete for highest scores in group debates",
             inline=False
         )
         
@@ -676,7 +666,7 @@ async def enddebate(ctx, send_email: str = None):
     )
     welcome_embed.add_field(
         name="How to start",
-        value="Type `!debate [topic]` to begin a debate\n• I'll find a current news article on your topic for us to discuss\n• Example: `!debate climate change` or just `!debate` for a random trending topic",
+        value="Type `!debate [topic]` to begin a debate\nExample: `!debate climate change` or just `!debate` for a random topic",
         inline=False
     )
     welcome_embed.add_field(
@@ -688,29 +678,11 @@ async def enddebate(ctx, send_email: str = None):
         inline=False
     )
     welcome_embed.add_field(
-        name="Fact-Checking",
-        value="• Your factual claims are automatically verified during debates\n"
-              "• Accurate claims earn bonus points\n"
-              "• Look for the fact-check results after bot responses\n"
-              "• Type `!factcheck` to learn more about this feature",
-        inline=False
-    )
-    welcome_embed.add_field(
-        name="Earning Points",
-        value="• Longer debates earn more points (up to 30 base points)\n"
-             "• Longer, thoughtful responses get bonus points\n"
-             "• Complete debates daily to build your streak\n"
-             "• Earn achievements to showcase your skills",
-        inline=False
-    )
-    welcome_embed.add_field(
         name="Commands",
         value="`!stats` - View your debate statistics\n"
              "`!leaderboard` - See top debaters\n"
              "`!enddebate` - End current debate session\n"
-             "`!enddebate email` - End debate and receive summary by email\n"
-             "`!join @user` - Join another user's debate\n"
-             "`!leave` - Leave a debate you've joined",
+             "`!enddebate email` - End debate and receive summary by email",
         inline=False
     )
     welcome_embed.add_field(
@@ -727,14 +699,6 @@ async def enddebate(ctx, send_email: str = None):
               "`!figure [name]` - View details about a figure\n"
               "`!customfigure [name]` - Create any historical figure\n"
               "`!debate [figure] [level] [topic]` - Debate as a historical figure",
-        inline=False
-    )
-    welcome_embed.add_field(
-        name="Multi-User Debates",
-        value="• Start a debate that others can join\n"
-              "• Join ongoing debates with `!join @username`\n"
-              "• See active debates with `!debates`\n"
-              "• Compete for highest scores in group debates",
         inline=False
     )
     
