@@ -657,6 +657,52 @@ async def enddebate(ctx, send_email: str = None):
     # At the end of the enddebate command, if email wasn't used, add this:
     if not send_email_summary:
         await ctx.send("📧 **Pro Tip**: Next time, try `!enddebate email` to get a detailed coach analysis sent to your inbox!\nRegister your email with `!email set youremail@example.com`")
+    
+    # Add welcome instructions again after debate ends
+    welcome_embed = discord.Embed(
+        title="EchoBreaker Debate Bot",
+        description="I'm here to help you sharpen your debate skills by challenging you with strong political viewpoints.",
+        color=discord.Color.blue()
+    )
+    welcome_embed.add_field(
+        name="How to start",
+        value="Type `!debate [topic]` to begin a debate\nExample: `!debate climate change` or just `!debate` for a random topic",
+        inline=False
+    )
+    welcome_embed.add_field(
+        name="Debate Levels",
+        value="`!debate beginner [topic]` - Simpler language & gentler arguments (0.8x points)\n"
+             "`!debate intermediate [topic]` - Standard level (1.0x points)\n"
+             "`!debate advanced [topic]` - Complex language & aggressive arguments (1.2x points)\n"
+             "Type `!levels` for more details",
+        inline=False
+    )
+    welcome_embed.add_field(
+        name="Commands",
+        value="`!stats` - View your debate statistics\n"
+             "`!leaderboard` - See top debaters\n"
+             "`!enddebate` - End current debate session\n"
+             "`!enddebate email` - End debate and receive summary by email",
+        inline=False
+    )
+    welcome_embed.add_field(
+        name="Email Features",
+        value="• Get detailed debate summaries sent to your inbox\n"
+             "• Receive coach-like feedback and performance analysis\n"
+             "• Use `!email set youremail@example.com` to register\n"
+             "• Type `!emailhelp` for more information",
+        inline=False
+    )
+    welcome_embed.add_field(
+        name="Historical Figures",
+        value="`!figures` - View available historical figures\n"
+              "`!figure [name]` - View details about a figure\n"
+              "`!customfigure [name]` - Create any historical figure\n"
+              "`!debate [figure] [level] [topic]` - Debate as a historical figure",
+        inline=False
+    )
+    
+    await ctx.send("Ready for another debate? Here's what you can do:", embed=welcome_embed)
 
 @bot.command(name="ping", help="Pings the bot.")
 async def ping(ctx, *, arg=None):
