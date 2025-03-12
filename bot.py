@@ -82,7 +82,7 @@ async def on_ready():
         )
         welcome_embed.add_field(
             name="Fact-Checking",
-            value="• Your factual claims are automatically verified during debates\n"
+            value="• Your factual claims are automatically verified using Perplexity AI\n"
                   "• Accurate claims earn bonus points\n"
                   "• Look for the fact-check results after bot responses\n"
                   "• Type `!factcheck` to learn more about this feature",
@@ -689,7 +689,7 @@ async def enddebate(ctx, send_email: str = None):
     )
     welcome_embed.add_field(
         name="Fact-Checking",
-        value="• Your factual claims are automatically verified during debates\n"
+        value="• Your factual claims are automatically verified using Perplexity AI\n"
               "• Accurate claims earn bonus points\n"
               "• Look for the fact-check results after bot responses\n"
               "• Type `!factcheck` to learn more about this feature",
